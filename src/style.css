@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Barlow', sans-serif;
+    background-color: #0f0f0f;
+    color: #e5e5e5;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #eab308;
+  }
+}
+
+@layer components {
+  .btn-gold {
+    @apply bg-clan-gold text-black font-display font-bold px-5 py-2 rounded
+           hover:bg-clan-gold-glow active:scale-95
+           transition-all duration-150 tracking-wider uppercase text-sm;
+  }
+
+  .btn-outline {
+    @apply border border-clan-border text-clan-text-dim font-body px-4 py-2 rounded
+           hover:border-clan-gold hover:text-clan-gold
+           transition-all duration-150 text-sm;
+  }
+
+  .card {
+    @apply bg-clan-card border border-clan-border rounded-lg;
+  }
+
+  .rank-badge {
+    @apply font-mono text-xs w-8 h-8 flex items-center justify-center rounded;
+  }
+
+  .rank-1 { @apply bg-yellow-500 text-black font-bold; }
+  .rank-2 { @apply bg-gray-400 text-black font-bold; }
+  .rank-3 { @apply bg-amber-700 text-white font-bold; }
+  .rank-other { @apply bg-clan-surface text-clan-muted; }
+
+  .tab-btn {
+    @apply px-6 py-3 font-display font-semibold text-sm tracking-widest uppercase
+           border-b-2 border-transparent text-clan-muted
+           hover:text-clan-text transition-all duration-200;
+  }
+  .tab-btn.active {
+    @apply border-clan-gold text-clan-gold;
+  }
+
+  .input-field {
+    @apply bg-clan-surface border border-clan-border rounded px-3 py-2
+           text-clan-text text-sm font-mono
+           focus:outline-none focus:border-clan-gold
+           transition-colors duration-200 w-full;
+  }
+
+  .section-title {
+    @apply font-display text-lg font-bold tracking-widest uppercase text-clan-gold
+           border-l-2 border-clan-gold pl-3;
+  }
+}
+
+/* 승급 대상 깜빡임 */
+@keyframes upgradeGlow {
+  0%, 100% { box-shadow: 0 0 6px rgba(234,179,8,0.3); }
+  50% { box-shadow: 0 0 16px rgba(234,179,8,0.7); }
+}
+.upgrade-badge {
+  animation: upgradeGlow 2s ease-in-out infinite;
+}
+
+/* 모달 배경 */
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.7);
+}
+
+/* 럭키드로우 당첨 애니메이션 */
+@keyframes winnerReveal {
+  0% { opacity: 0; transform: scale(0.5) rotate(-5deg); }
+  60% { transform: scale(1.1) rotate(2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.winner-card {
+  animation: winnerReveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.winner-card:nth-child(2) { animation-delay: 0.15s; }
+.winner-card:nth-child(3) { animation-delay: 0.30s; }
