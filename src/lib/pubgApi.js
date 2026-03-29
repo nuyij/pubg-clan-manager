@@ -73,11 +73,14 @@ export function parseMatchData(matchJson) {
       members: memberIds.map(id => participants.get(id)).filter(Boolean),
     })
   }
-  return { participants, rosters }
+  // 전체 참가자 수
+  const totalPlayers = participants.size
+  return { participants, rosters, totalPlayers }
 }
 
 export async function syncAllMatches({ members, settings, processedMatchIds, seasonRange, onProgress }) {
-  const results = []
+  const results = []       // match_data 집계용
+  const records = []       // match_records 상세 기록용
   const errors = []
 
   onProgress?.('플레이어 정보 조회 중...')
@@ -87,7 +90,7 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
     if (m.pubg_accounts?.length) m.pubg_accounts.forEach(a => { if (a.pubg_name) allPubgNames.push(a.pubg_name) })
     else if (m.pubg_name) allPubgNames.push(m.pubg_name)
   }
-  if (!allPubgNames.length) throw new Error('등록된 배그 ID가 없습니다. 배그 ID를 먼저 등록해주세요.')
+  if (!allPubgNames.length) throw new Error('등록된 배그 ID가 없습니다.')
 
   let pubgPlayers = []
   for (let i = 0; i < allPubgNames.length; i += 10) {
@@ -104,14 +107,16 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
   const accountIdToMember = new Map()
   const accountIdToPubgName = new Map()
   for (const m of members) {
-    const names = m.pubg_accounts?.length ? m.pubg_accounts.map(a => a.pubg_name).filter(Boolean) : m.pubg_name ? [m.pubg_name] : []
+    const names = m.pubg_accounts?.length
+      ? m.pubg_accounts.map(a => a.pubg_name).filter(Boolean)
+      : m.pubg_name ? [m.pubg_name] : []
     for (const name of names) {
       const accountId = nameToAccountId.get(name.toLowerCase())
       if (accountId) { accountIdToMember.set(accountId, m); accountIdToPubgName.set(accountId, name) }
       else errors.push(`닉네임 불일치 또는 비공개: ${name}`)
     }
   }
-  if (!accountIdToMember.size) throw new Error('PUBG에서 조회된 클랜원이 없습니다. 배그 ID를 확인해주세요.')
+  if (!accountIdToMember.size) throw new Error('PUBG에서 조회된 클랜원이 없습니다.')
 
   onProgress?.('최근 매치 목록 수집 중...')
   const allMatchIds = new Set()
@@ -126,7 +131,7 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
   }
 
   const newMatchIds = [...allMatchIds].filter(id => !processedMatchIds.has(id))
-  if (!newMatchIds.length) return { results: [], errors, processedCount: 0, message: '새로운 매치가 없습니다' }
+  if (!newMatchIds.length) return { results: [], records: [], errors, processedCount: 0, message: '새로운 매치가 없습니다' }
 
   onProgress?.(`신규 매치 ${newMatchIds.length}개 처리 중...`)
 
@@ -144,26 +149,23 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
         }
       }
 
-      const { rosters } = parseMatchData(matchJson)
+      const { rosters, totalPlayers } = parseMatchData(matchJson)
 
       for (const roster of rosters) {
         const clanMems = roster.members.filter(p => accountIdToMember.has(p.playerId))
         if (!clanMems.length) continue
 
         const isParty = clanMems.length >= 2
+        const hasNewbie = clanMems.some(p => {
+          const m = accountIdToMember.get(p.playerId)
+          return m && (m.status === '신규' || m.status === '텟생')
+        })
 
-        // ✅ 기여도: 파티일 때만, 생존시간 합산 기반
-        // 공식: 파티 클랜원 생존시간 합(초) × 가산율
-        // → 오래 같이 살아있을수록 높은 기여도
+        // 기여도: 생존시간(분) × 인원수 × 가산율
         let contribution = 0
         if (isParty) {
-          const hasNewbie = clanMems.some(p => {
-            const m = accountIdToMember.get(p.playerId)
-            return m && (m.status === '신규' || m.status === '텟생')
-          })
           const totalSurvivalTime = clanMems.reduce((sum, p) => sum + p.survivalTime, 0)
           const multiplier = hasNewbie ? (settings.newbie_bonus ?? 1.5) : 1.0
-          // 초 단위 → 분 단위로 환산 후 점수화 (1분 = 1점 기본, 인원 가중)
           contribution = Math.floor((totalSurvivalTime / 60) * multiplier * clanMems.length)
         }
 
@@ -173,12 +175,12 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
           if (!member || !pubgName) continue
 
           const rankScore = settings.rank_scores?.[String(roster.rank)] ?? 0
-          // 베스트플레이어·최장플레이어는 혼자 게임해도 항상 기록
           const bestPlayer =
             participant.kills * (settings.kill_weight ?? 10) +
             participant.assists * (settings.assist_weight ?? 5) +
             rankScore
 
+          // 집계용
           results.push({
             pubg_name: pubgName,
             matchId, matchCreatedAt,
@@ -190,6 +192,24 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
             contributionPoints: contribution,
             bestPlayerPoints: bestPlayer,
           })
+
+          // 상세 기록용
+          records.push({
+            match_id: matchId,
+            pubg_name: pubgName,
+            member_id: member.id,
+            played_at: matchCreatedAt,
+            kills: participant.kills,
+            assists: participant.assists,
+            damage: participant.damage,
+            survival_time: participant.survivalTime,
+            win_place: roster.rank,
+            total_players: totalPlayers,
+            contribution: contribution,
+            best_player_pts: bestPlayer,
+            is_party: isParty,
+            party_size: clanMems.length,
+          })
         }
       }
 
@@ -199,5 +219,5 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
     }
     if (i < newMatchIds.length - 1) await delay(250)
   }
-  return { results, errors, processedCount: newMatchIds.length }
+  return { results, records, errors, processedCount: newMatchIds.length }
 }
