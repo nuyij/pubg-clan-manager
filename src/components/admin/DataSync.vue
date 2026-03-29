@@ -427,7 +427,9 @@ async function startSync() {
   const startTime = Date.now()
 
   try {
+    console.log('[SYNC] 1. 시작')
     const { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange } = await loadSyncData()
+    console.log('[SYNC] 2. 멤버수:', membersWithAccounts.length, '처리된매치:', processedMatchIds.size, '시즌:', activeSeason?.name)
 
     const { results, records, errors: errs, processedCount, skippedCount, message } = await syncAllMatches({
       members: membersWithAccounts, settings: settingsStore.settings,
@@ -440,10 +442,12 @@ async function startSync() {
     })
 
     if (syncAborted) return
+    console.log('[SYNC] 3. results:', results.length, 'records:', records.length, 'skipped:', skippedCount, 'errs:', errs.length)
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
 
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
 
+    console.log('[SYNC] 4. saved:', saved, 'errs:', errs)
     if (!syncAborted) {
       await settingsStore.save({ last_synced_at: new Date().toISOString() })
       await rankingStore.fetchAll(activeSeason?.id)
@@ -473,7 +477,9 @@ async function startManualSync() {
   manualResult.value = null; lastError.value = ''
 
   try {
+    console.log('[SYNC] 1. 시작')
     const { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange } = await loadSyncData()
+    console.log('[SYNC] 2. 멤버수:', membersWithAccounts.length, '처리된매치:', processedMatchIds.size, '시즌:', activeSeason?.name)
 
     const { results, records, errors: errs, skipped, alreadyProcessed, processedCount } = await syncMatchIds({
       matchIds: manualIds.value,
@@ -487,6 +493,7 @@ async function startManualSync() {
     })
 
     if (syncAborted) return
+    console.log('[SYNC] 3. results:', results.length, 'records:', records.length, 'skipped:', skippedCount, 'errs:', errs.length)
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
 
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
