@@ -3,8 +3,9 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// 집계 대상 게임 모드 (경쟁전만)
-const ALLOWED_GAME_MODES = ['ranked', 'ranked-tpp']
+// 집계 대상 게임 모드
+// 카카오 서버 모드명 확인 중 - 현재 임시로 전체 허용
+const ALLOWED_GAME_MODES = null // null = 전체 허용
 
 async function pubgFetch(path) {
   const url = `${SUPABASE_URL}/functions/v1/pubg-proxy?path=${encodeURIComponent(path)}`
@@ -89,10 +90,10 @@ function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPub
   const matchCreatedAt = matchJson.data?.attributes?.createdAt
   const gameMode = matchJson.data?.attributes?.gameMode ?? ''
 
-  // 경쟁전 모드만 처리
+  // 게임모드 로그 (확인용)
   console.log('[MATCH]', matchId?.slice(0,8), '게임모드:', gameMode)
-  if (!ALLOWED_GAME_MODES.includes(gameMode)) {
-    console.log('[SKIP] 게임모드 제외:', gameMode, '허용목록:', ALLOWED_GAME_MODES)
+  if (ALLOWED_GAME_MODES && !ALLOWED_GAME_MODES.includes(gameMode)) {
+    console.log('[SKIP] 게임모드 제외:', gameMode)
     return { results, records, skipped: true, reason: `게임모드 제외 (${gameMode})` }
   }
 
