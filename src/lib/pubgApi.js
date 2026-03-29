@@ -90,14 +90,19 @@ function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPub
   const gameMode = matchJson.data?.attributes?.gameMode ?? ''
 
   // 경쟁전 모드만 처리
+  console.log('[MATCH]', matchId?.slice(0,8), '게임모드:', gameMode)
   if (!ALLOWED_GAME_MODES.includes(gameMode)) {
+    console.log('[SKIP] 게임모드 제외:', gameMode, '허용목록:', ALLOWED_GAME_MODES)
     return { results, records, skipped: true, reason: `게임모드 제외 (${gameMode})` }
   }
 
   // 시즌 기간 필터
   if (seasonRange && matchCreatedAt) {
     const t = new Date(matchCreatedAt).getTime()
-    if (t < new Date(seasonRange.start).getTime() || t > new Date(seasonRange.end).getTime()) {
+    const start = new Date(seasonRange.start).getTime()
+    const end = new Date(seasonRange.end).getTime()
+    console.log('[SEASON] 매치시각:', matchCreatedAt, '시즌범위:', seasonRange.start, '~', seasonRange.end, '포함여부:', t >= start && t <= end)
+    if (t < start || t > end) {
       return { results, records, skipped: true, reason: '시즌 기간 외' }
     }
   }
