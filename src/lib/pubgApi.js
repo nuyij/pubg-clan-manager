@@ -3,9 +3,9 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// 집계 대상 게임 모드
-// 카카오 서버 모드명 확인 중 - 현재 임시로 전체 허용
-const ALLOWED_GAME_MODES = null // null = 전체 허용
+// 집계 대상 게임 모드 (카카오 서버 기준)
+// squad = 경쟁전, squad-fpp = 경쟁전 1인칭
+const ALLOWED_GAME_MODES = ['squad', 'squad-fpp']
 
 async function pubgFetch(path) {
   const url = `${SUPABASE_URL}/functions/v1/pubg-proxy?path=${encodeURIComponent(path)}`
@@ -90,20 +90,15 @@ function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPub
   const matchCreatedAt = matchJson.data?.attributes?.createdAt
   const gameMode = matchJson.data?.attributes?.gameMode ?? ''
 
-  // 게임모드 로그 (확인용)
-  console.log('[MATCH]', matchId?.slice(0,8), '게임모드:', gameMode)
+  // 허용 모드 필터
   if (ALLOWED_GAME_MODES && !ALLOWED_GAME_MODES.includes(gameMode)) {
-    console.log('[SKIP] 게임모드 제외:', gameMode)
     return { results, records, skipped: true, reason: `게임모드 제외 (${gameMode})` }
   }
 
   // 시즌 기간 필터
   if (seasonRange && matchCreatedAt) {
     const t = new Date(matchCreatedAt).getTime()
-    const start = new Date(seasonRange.start).getTime()
-    const end = new Date(seasonRange.end).getTime()
-    console.log('[SEASON] 매치시각:', matchCreatedAt, '시즌범위:', seasonRange.start, '~', seasonRange.end, '포함여부:', t >= start && t <= end)
-    if (t < start || t > end) {
+    if (t < new Date(seasonRange.start).getTime() || t > new Date(seasonRange.end).getTime()) {
       return { results, records, skipped: true, reason: '시즌 기간 외' }
     }
   }

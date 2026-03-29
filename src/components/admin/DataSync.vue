@@ -427,9 +427,7 @@ async function startSync() {
   const startTime = Date.now()
 
   try {
-    console.log('[SYNC] 1. loadSyncData 시작')
     const { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange } = await loadSyncData()
-    console.log('[SYNC] 2. loadSyncData 완료 - 멤버수:', membersWithAccounts.length, '처리된매치:', processedMatchIds.size)
 
     const { results, records, errors: errs, processedCount, skippedCount, message } = await syncAllMatches({
       members: membersWithAccounts, settings: settingsStore.settings,
@@ -442,12 +440,10 @@ async function startSync() {
     })
 
     if (syncAborted) return
-    console.log('[SYNC] 3. syncAllMatches 완료 - results:', results.length, 'records:', records.length, 'errors:', errs)
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
 
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
 
-    console.log('[SYNC] 4. saveResults 완료 - saved:', saved)
     if (!syncAborted) {
       await settingsStore.save({ last_synced_at: new Date().toISOString() })
       await rankingStore.fetchAll(activeSeason?.id)
@@ -491,7 +487,6 @@ async function startManualSync() {
     })
 
     if (syncAborted) return
-    console.log('[SYNC] 3. syncAllMatches 완료 - results:', results.length, 'records:', records.length, 'errors:', errs)
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
 
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
