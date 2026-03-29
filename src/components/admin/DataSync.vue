@@ -218,33 +218,82 @@ async function startSync() {
 
     progressMsg.value = '점수 저장 중...'; progressPct.value = 95
 
-    // 점수 upsert
+    progressMsg.value = '점수 집계 중...'
+
+    // match_data 집계: pubg_name별로 합산
+    const aggregated = {}
     for (const r of results) {
       const member = membersWithAccounts.find(m =>
         m.pubg_accounts?.some(a => a.pubg_name === r.pubg_name) || m.pubg_name === r.pubg_name
       )
-      const { error } = await supabase.rpc('upsert_match_data', {
-        p_pubg_name: r.pubg_name,
-        p_member_id: member?.id ?? null,
-        p_season_id: activeSeason?.id ?? null,
-        p_kills: r.kills, p_assists: r.assists, p_damage: r.damage,
-        p_survival_time: r.survivalTime, p_is_win: r.winPlace === 1 ? 1 : 0,
-        p_contribution: r.contributionPoints, p_best_player: r.bestPlayerPoints,
-      })
-      if (error) errs.push(`점수저장 실패(${r.pubg_name}): ${error.message}`)
+      const key = r.pubg_name
+      if (!aggregated[key]) {
+        aggregated[key] = {
+          pubg_name: r.pubg_name,
+          member_id: member?.id ?? null,
+          season_id: activeSeason?.id ?? null,
+          total_kills: 0, total_assists: 0, total_damage: 0,
+          total_survival_time: 0, total_wins: 0, total_games: 0,
+          contribution_points: 0, best_player_points: 0,
+          updated_at: new Date().toISOString(),
+        }
+      }
+      const agg = aggregated[key]
+      agg.total_kills         += r.kills
+      agg.total_assists       += r.assists
+      agg.total_damage        += r.damage
+      agg.total_survival_time += r.survivalTime
+      agg.total_wins          += r.winPlace === 1 ? 1 : 0
+      agg.total_games         += 1
+      agg.contribution_points += r.contributionPoints
+      agg.best_player_points  += r.bestPlayerPoints
     }
 
-    // 게임 상세 기록 저장 (match_records)
+    // match_data 배치 upsert (한 번에)
+    const aggRows = Object.values(aggregated)
+    if (aggRows.length) {
+      // 기존 데이터와 합산
+      for (const row of aggRows) {
+        let q = supabase.from('match_data').select('*').eq('pubg_name', row.pubg_name)
+        if (row.season_id) q = q.eq('season_id', row.season_id)
+        else q = q.is('season_id', null)
+        const { data: existing } = await q.maybeSingle()
+
+        if (existing) {
+          let uq = supabase.from('match_data').update({
+            total_kills:         existing.total_kills + row.total_kills,
+            total_assists:       existing.total_assists + row.total_assists,
+            total_damage:        existing.total_damage + row.total_damage,
+            total_survival_time: existing.total_survival_time + row.total_survival_time,
+            total_wins:          existing.total_wins + row.total_wins,
+            total_games:         existing.total_games + row.total_games,
+            contribution_points: existing.contribution_points + row.contribution_points,
+            best_player_points:  existing.best_player_points + row.best_player_points,
+            updated_at:          new Date().toISOString(),
+          }).eq('pubg_name', row.pubg_name)
+          if (row.season_id) uq = uq.eq('season_id', row.season_id)
+          else uq = uq.is('season_id', null)
+          await uq
+        } else {
+          await supabase.from('match_data').insert(row)
+        }
+      }
+    }
+
+    // match_records 배치 upsert (한 번에)
     if (records.length) {
       const recordsWithSeason = records.map(r => ({
         ...r,
         season_id: activeSeason?.id ?? null,
       }))
-      // 중복 방지: match_id + pubg_name 조합으로 upsert
-      const { error: recErr } = await supabase
-        .from('match_records')
-        .upsert(recordsWithSeason, { onConflict: 'match_id,pubg_name', ignoreDuplicates: true })
-      if (recErr) errs.push(`게임기록 저장 실패: ${recErr.message}`)
+      // 100건씩 나눠서 저장 (Supabase 제한)
+      for (let i = 0; i < recordsWithSeason.length; i += 100) {
+        const chunk = recordsWithSeason.slice(i, i + 100)
+        const { error: recErr } = await supabase
+          .from('match_records')
+          .upsert(chunk, { onConflict: 'match_id,pubg_name', ignoreDuplicates: true })
+        if (recErr) errs.push(`게임기록 저장 실패: ${recErr.message}`)
+      }
     }
 
     // 매치 히스토리 저장
