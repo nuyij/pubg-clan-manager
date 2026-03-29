@@ -60,7 +60,7 @@
   </div>
 </template>
 <script setup>
-import { ref } from 'vue'
+import { ref, onActivated } from 'vue'
 import { useRankingStore } from '@/stores/ranking'
 import { supabase } from '@/lib/supabase'
 import TipModal from '@/components/common/TipModal.vue'
@@ -68,6 +68,8 @@ import MemberDetailModal from '@/components/common/MemberDetailModal.vue'
 const ranking = useRankingStore()
 const showTip = ref(false)
 const selectedMember = ref(null)
+// 페이지 재진입 시 모달 상태 초기화
+onActivated(() => { selectedMember.value = null })
 const avgKD = (item) => item.total_games ? (item.total_kills / item.total_games).toFixed(2) : '0.00'
 const avgDmg = (item) => item.total_games ? Math.floor(item.total_damage / item.total_games).toLocaleString() : '0'
 async function openDetail(item) {

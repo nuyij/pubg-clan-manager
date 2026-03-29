@@ -71,7 +71,7 @@
   </div>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onActivated } from 'vue'
 import { useRankingStore } from '@/stores/ranking'
 import { useSettingsStore } from '@/stores/settings'
 import { supabase } from '@/lib/supabase'
@@ -81,6 +81,8 @@ const ranking = useRankingStore()
 const settings = useSettingsStore()
 const showTip = ref(false)
 const selectedMember = ref(null)
+// 페이지 재진입 시 모달 상태 초기화
+onActivated(() => { selectedMember.value = null })
 const pool = computed(() => ranking.getLuckyDrawPool(settings.settings.lucky_draw_min_points ?? 50))
 const topClass = (r) => r===1?'border-yellow-500/50 shadow-gold':r===2?'border-gray-400/30':'border-amber-700/30'
 async function openDetail(item) {

@@ -36,7 +36,7 @@
   </div>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onActivated } from 'vue'
 import { useRankingStore } from '@/stores/ranking'
 import { supabase } from '@/lib/supabase'
 import TipModal from '@/components/common/TipModal.vue'
@@ -44,6 +44,8 @@ import MemberDetailModal from '@/components/common/MemberDetailModal.vue'
 const ranking = useRankingStore()
 const showTip = ref(false)
 const selectedMember = ref(null)
+// 페이지 재진입 시 모달 상태 초기화
+onActivated(() => { selectedMember.value = null })
 const maxTime = computed(() => ranking.mostTimeRanking[0]?.total_survival_time ?? 1)
 const barWidth = (s) => `${(s/maxTime.value)*100}%`
 const avgMin = (item) => item.total_games ? Math.floor(item.total_survival_time/item.total_games/60) : 0

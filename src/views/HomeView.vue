@@ -3,7 +3,7 @@
     <!-- 배그 ID 검색 바 -->
     <div class="card p-4">
       <div class="text-xs text-clan-muted font-mono tracking-wider mb-3">🔍 배그 ID로 클랜원 검색</div>
-      <PlayerSearch />
+      <PlayerSearch :key="searchKey" />
     </div>
 
     <!-- 시즌 선택 (모바일) -->
@@ -45,13 +45,14 @@ import BestPlayerRanking from '@/components/ranking/BestPlayerRanking.vue'
 import MostTimeRanking from '@/components/ranking/MostTimeRanking.vue'
 import PlayerSearch from '@/components/common/PlayerSearch.vue'
 
-// KeepAlive를 위한 컴포넌트 이름 지정
 defineOptions({ name: 'HomeView' })
 
 const ranking = useRankingStore()
 const settings = useSettingsStore()
 const season = useSeasonStore()
 const activeTab = ref('contribution')
+const searchKey = ref(0) // PlayerSearch 강제 리셋용
+
 const tabs = [
   { key: 'contribution', label: '기여도 순위', icon: '🤝' },
   { key: 'bestplayer',   label: '베스트 플레이어', icon: '🔫' },
@@ -63,15 +64,15 @@ async function loadData() {
   await ranking.fetchAll(season.selectedSeasonId)
 }
 
-// 최초 마운트
 onMounted(loadData)
 
-// 관리자→메인 등 페이지 재진입 시 (KeepAlive + onActivated)
-onActivated(loadData)
+// 관리자→메인 재진입 시 데이터 새로고침 + PlayerSearch 상태 리셋
+onActivated(() => {
+  searchKey.value++ // PlayerSearch 컴포넌트 강제 재생성 (모달 상태 초기화)
+  loadData()
+})
 
-// 시즌 변경 시 랭킹 다시 로드
 watch(() => season.selectedSeasonId, (id) => ranking.fetchAll(id))
-
 function onSeasonChange(id) { season.selectSeason(id) }
 </script>
 
