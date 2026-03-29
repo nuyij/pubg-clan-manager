@@ -22,22 +22,22 @@
               </span>
             </div>
           </div>
-          <button @click="$emit('close')" class="text-clan-muted hover:text-clan-text shrink-0 text-xl">✕</button>
+          <button @click="$emit('close')" class="text-clan-muted hover:text-clan-text shrink-0 text-xl leading-none">✕</button>
         </div>
 
         <!-- 탭 -->
-        <div class="flex border-b border-clan-border shrink-0">
+        <div class="flex border-b border-clan-border shrink-0 overflow-x-auto">
           <button v-for="t in tabs" :key="t.key"
-            :class="['px-4 py-2 text-xs font-display tracking-widest border-b-2 transition-colors',
+            :class="['px-4 py-2 text-xs font-display tracking-widest border-b-2 transition-colors whitespace-nowrap',
               activeTab === t.key ? 'border-clan-gold text-clan-gold' : 'border-transparent text-clan-muted hover:text-clan-text']"
             @click="activeTab = t.key">
             {{ t.label }}
           </button>
         </div>
 
-        <!-- 통계 요약 -->
-        <div v-if="summaryStats.length" class="grid grid-cols-3 sm:grid-cols-6 gap-2 p-4 border-b border-clan-border shrink-0">
-          <div v-for="stat in summaryStats" :key="stat.label" class="bg-clan-surface rounded p-2 text-center">
+        <!-- 전체 통계 요약 (match_data 기반 — 더보기와 무관하게 항상 전체) -->
+        <div v-if="totalStats" class="grid grid-cols-3 sm:grid-cols-6 gap-2 p-4 border-b border-clan-border shrink-0">
+          <div v-for="stat in totalStats" :key="stat.label" class="bg-clan-surface rounded p-2 text-center">
             <div class="font-mono font-bold text-sm" :class="stat.color">{{ stat.value }}</div>
             <div class="text-[10px] text-clan-muted mt-0.5">{{ stat.label }}</div>
           </div>
@@ -61,22 +61,21 @@
               <div class="text-center">어시</div>
               <div class="text-right">딜량</div>
               <div class="text-right">생존</div>
-              <div v-if="activeTab === 'contribution'" class="text-right">기여도</div>
-              <div v-else-if="activeTab === 'bestplayer'" class="text-right">베플점수</div>
+              <div v-if="activeTab==='contribution'" class="text-right">기여도</div>
+              <div v-else-if="activeTab==='bestplayer'" class="text-right">베플점수</div>
               <div v-else class="text-right">생존(분)</div>
             </div>
 
             <template v-for="rec in filteredRecords" :key="rec.id">
               <!-- 매치 행 -->
-              <div
-                class="px-4 py-2.5 border-b border-clan-border/40 hover:bg-clan-surface/40 cursor-pointer transition-colors grid gap-2 items-center text-xs"
+              <div class="px-4 py-2.5 border-b border-clan-border/40 hover:bg-clan-surface/40 cursor-pointer transition-colors grid gap-2 items-center text-xs"
                 :class="[colClass, selectedRecord?.id === rec.id ? 'bg-clan-surface/60 border-l-2 border-l-clan-gold' : '']"
-                @click="selectedRecord = selectedRecord?.id === rec.id ? null : rec">
+                @click="toggleRecord(rec)">
                 <div>
                   <div class="font-mono text-clan-text-dim">{{ formatDate(rec.played_at) }}</div>
                   <div class="text-[10px] text-clan-muted">
                     {{ rec.is_party ? `파티 ${rec.party_size}인` : '솔로' }}
-                    <span v-if="rec.pubg_name !== (member.pubg_name)" class="text-clan-gold ml-1">· {{ rec.pubg_name }}</span>
+                    <span v-if="rec.pubg_name !== member.pubg_name" class="text-clan-gold ml-1">· {{ rec.pubg_name }}</span>
                   </div>
                 </div>
                 <div class="text-center">
@@ -88,10 +87,10 @@
                 <div class="text-center font-mono text-blue-400">{{ rec.assists }}</div>
                 <div class="text-right font-mono text-orange-300">{{ Math.floor(rec.damage).toLocaleString() }}</div>
                 <div class="text-right font-mono text-clan-muted">{{ formatTime(rec.survival_time) }}</div>
-                <div v-if="activeTab === 'contribution'" class="text-right font-mono text-clan-gold">
+                <div v-if="activeTab==='contribution'" class="text-right font-mono text-clan-gold">
                   {{ rec.contribution > 0 ? rec.contribution + '점' : '-' }}
                 </div>
-                <div v-else-if="activeTab === 'bestplayer'" class="text-right font-mono text-green-400">
+                <div v-else-if="activeTab==='bestplayer'" class="text-right font-mono text-green-400">
                   {{ Math.floor(rec.best_player_pts) }}
                 </div>
                 <div v-else class="text-right font-mono text-clan-gold">
@@ -99,17 +98,16 @@
                 </div>
               </div>
 
-              <!-- 인라인 상세 (클릭한 행 바로 아래) -->
+              <!-- 인라인 상세 -->
               <div v-if="selectedRecord?.id === rec.id"
                 class="border-b border-clan-border/40 bg-clan-surface/80 px-4 py-3 animate-slide-up">
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                  <div v-for="d in recordDetail(rec)" :key="d.label"
-                    class="bg-clan-card rounded p-2 text-center">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+                  <div v-for="d in recordDetail(rec)" :key="d.label" class="bg-clan-card rounded p-2 text-center">
                     <div class="font-mono font-bold text-sm" :class="d.color">{{ d.value }}</div>
                     <div class="text-[10px] text-clan-muted">{{ d.label }}</div>
                   </div>
                 </div>
-                <!-- 파티원 목록 -->
+                <!-- 파티원 -->
                 <div v-if="rec.party_members?.length" class="mt-2">
                   <div class="text-[10px] text-clan-muted font-mono mb-1">파티원</div>
                   <div class="flex gap-1 flex-wrap">
@@ -127,7 +125,7 @@
         <!-- 더보기 -->
         <div v-if="hasMore && !loadingRecords" class="p-3 border-t border-clan-border shrink-0 text-center">
           <button @click="loadMore" :disabled="loadingMore" class="btn-outline text-xs px-6">
-            {{ loadingMore ? '불러오는 중...' : `더보기 (${records.length}/${totalCount}건)` }}
+            {{ loadingMore ? '불러오는 중...' : `더보기 (${records.length}/${totalCount}건 로드됨)` }}
           </button>
         </div>
       </div>
@@ -139,7 +137,10 @@
 import { ref, computed, watch } from 'vue'
 import { supabase } from '@/lib/supabase'
 
-const props = defineProps({ member: Object, rankType: { type: String, default: 'contribution' } })
+const props = defineProps({
+  member: Object,
+  rankType: { type: String, default: 'contribution' }
+})
 defineEmits(['close'])
 
 const records = ref([])
@@ -151,6 +152,7 @@ const PAGE_SIZE = 20
 const hasMore = ref(false)
 const totalCount = ref(0)
 const activeTab = ref(props.rankType)
+const matchData = ref(null) // match_data 테이블에서 가져온 전체 통계
 
 const tabs = [
   { key: 'contribution', label: '🤝 기여도' },
@@ -159,13 +161,10 @@ const tabs = [
   { key: 'all',          label: '전체' },
 ]
 
-// 탭별 컬럼 그리드
-const colClass = computed(() => 'grid-cols-[1fr_3rem_3rem_4rem_5rem_4rem_5rem]')
+const colClass = 'grid-cols-[1fr_3rem_3rem_4rem_5rem_4rem_5rem]'
 
-// 탭 변경 시 목록 리셋
-watch(activeTab, () => {
-  selectedRecord.value = null
-})
+// 탭 변경 시 선택 초기화만 (목록은 유지)
+watch(activeTab, () => { selectedRecord.value = null })
 
 // 탭별 필터링
 const filteredRecords = computed(() => {
@@ -179,116 +178,98 @@ const pubgAccounts = computed(() =>
   props.member.member_pubg_accounts ?? props.member.pubg_accounts ?? []
 )
 
-// 통계 요약 - 탭에 맞게
-const summaryStats = computed(() => {
-  const data = filteredRecords.value
-  if (!data.length) return []
-  const g = data.length || 1
-  const total = data.reduce((acc, r) => ({
-    kills: acc.kills + r.kills,
-    assists: acc.assists + r.assists,
-    damage: acc.damage + r.damage,
-    survival_time: acc.survival_time + r.survival_time,
-    wins: acc.wins + (r.win_place === 1 ? 1 : 0),
-    contribution: acc.contribution + r.contribution,
-    best_player_pts: acc.best_player_pts + r.best_player_pts,
-  }), { kills: 0, assists: 0, damage: 0, survival_time: 0, wins: 0, contribution: 0, best_player_pts: 0 })
+// ✅ 전체 통계: match_data 테이블에서 가져온 데이터 (더보기와 무관하게 항상 전체)
+const totalStats = computed(() => {
+  if (!matchData.value) return null
+  const d = matchData.value
+  const g = d.total_games || 1
 
   if (activeTab.value === 'contribution') return [
-    { label: '기여도 합', value: total.contribution + '점', color: 'text-clan-gold' },
-    { label: '파티 게임', value: g + '판', color: 'text-clan-text' },
-    { label: '평균 기여도', value: Math.floor(total.contribution / g) + '점', color: 'text-yellow-400' },
-    { label: '킬/어시', value: `${total.kills}/${total.assists}`, color: 'text-red-400' },
-    { label: '평균딜', value: Math.floor(total.damage / g).toLocaleString(), color: 'text-orange-300' },
-    { label: '치킨', value: total.wins + '회', color: 'text-yellow-400' },
+    { label: '기여도 합', value: d.contribution_points + '점', color: 'text-clan-gold' },
+    { label: '총 게임', value: g + '판', color: 'text-clan-text' },
+    { label: '평균 기여도', value: Math.floor(d.contribution_points / g) + '점', color: 'text-yellow-400' },
+    { label: '킬/어시', value: `${d.total_kills}/${d.total_assists}`, color: 'text-red-400' },
+    { label: '평균딜', value: Math.floor(d.total_damage / g).toLocaleString(), color: 'text-orange-300' },
+    { label: '치킨', value: d.total_wins + '회', color: 'text-yellow-400' },
   ]
   if (activeTab.value === 'bestplayer') return [
-    { label: '베플점수 합', value: Math.floor(total.best_player_pts) + '점', color: 'text-clan-gold' },
+    { label: '베플점수', value: Math.floor(d.best_player_points) + '점', color: 'text-clan-gold' },
     { label: '총 게임', value: g + '판', color: 'text-clan-text' },
-    { label: '평균K/D', value: (total.kills / g).toFixed(2), color: 'text-orange-300' },
-    { label: '킬/어시', value: `${total.kills}/${total.assists}`, color: 'text-red-400' },
-    { label: '평균딜', value: Math.floor(total.damage / g).toLocaleString(), color: 'text-green-400' },
-    { label: '치킨', value: total.wins + '회', color: 'text-yellow-400' },
+    { label: '평균K/D', value: (d.total_kills / g).toFixed(2), color: 'text-orange-300' },
+    { label: '킬/어시', value: `${d.total_kills}/${d.total_assists}`, color: 'text-red-400' },
+    { label: '평균딜', value: Math.floor(d.total_damage / g).toLocaleString(), color: 'text-green-400' },
+    { label: '치킨', value: d.total_wins + '회', color: 'text-yellow-400' },
   ]
   if (activeTab.value === 'mosttime') {
-    const h = Math.floor(total.survival_time / 3600)
-    const m = Math.floor((total.survival_time % 3600) / 60)
+    const h = Math.floor(d.total_survival_time / 3600)
+    const m = Math.floor((d.total_survival_time % 3600) / 60)
     return [
       { label: '총 생존', value: `${h}시간 ${m}분`, color: 'text-clan-gold' },
       { label: '총 게임', value: g + '판', color: 'text-clan-text' },
-      { label: '평균 생존', value: Math.floor(total.survival_time / g / 60) + '분', color: 'text-blue-400' },
-      { label: '킬/어시', value: `${total.kills}/${total.assists}`, color: 'text-red-400' },
-      { label: '평균딜', value: Math.floor(total.damage / g).toLocaleString(), color: 'text-orange-300' },
-      { label: '치킨', value: total.wins + '회', color: 'text-yellow-400' },
+      { label: '평균 생존', value: Math.floor(d.total_survival_time / g / 60) + '분', color: 'text-blue-400' },
+      { label: '킬/어시', value: `${d.total_kills}/${d.total_assists}`, color: 'text-red-400' },
+      { label: '평균딜', value: Math.floor(d.total_damage / g).toLocaleString(), color: 'text-orange-300' },
+      { label: '치킨', value: d.total_wins + '회', color: 'text-yellow-400' },
     ]
   }
   return [
     { label: '총 게임', value: g + '판', color: 'text-clan-text' },
-    { label: '기여도 합', value: total.contribution + '점', color: 'text-clan-gold' },
-    { label: '평균K/D', value: (total.kills / g).toFixed(2), color: 'text-orange-300' },
-    { label: '킬/어시', value: `${total.kills}/${total.assists}`, color: 'text-red-400' },
-    { label: '평균딜', value: Math.floor(total.damage / g).toLocaleString(), color: 'text-green-400' },
-    { label: '치킨', value: total.wins + '회', color: 'text-yellow-400' },
+    { label: '기여도 합', value: d.contribution_points + '점', color: 'text-clan-gold' },
+    { label: '평균K/D', value: (d.total_kills / g).toFixed(2), color: 'text-orange-300' },
+    { label: '킬/어시', value: `${d.total_kills}/${d.total_assists}`, color: 'text-red-400' },
+    { label: '평균딜', value: Math.floor(d.total_damage / g).toLocaleString(), color: 'text-green-400' },
+    { label: '치킨', value: d.total_wins + '회', color: 'text-yellow-400' },
   ]
 })
 
-// member prop 변경 시 데이터 새로 로드 (모달 재사용 시 이벤트 안되는 문제 해결)
+// member prop 변경 시 완전 초기화 후 로드
 watch(() => props.member?.id, (newId) => {
-  if (newId) {
-    page.value = 0
-    records.value = []
-    selectedRecord.value = null
-    activeTab.value = props.rankType
-    loadRecords()
-  }
+  if (!newId) return
+  page.value = 0
+  records.value = []
+  selectedRecord.value = null
+  matchData.value = null
+  activeTab.value = props.rankType
+  loadAll()
 }, { immediate: true })
 
-async function loadRecords(append = false) {
+async function loadAll() {
   if (!props.member?.id) return
-  if (append) loadingMore.value = true
-  else loadingRecords.value = true
+  loadingRecords.value = true
 
-  const from = page.value * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+  // 전체 통계 (match_data) + 매치 목록 동시 로드
+  const [mdResult, countResult, recordsResult] = await Promise.all([
+    supabase.from('match_data').select('*').eq('member_id', props.member.id).maybeSingle(),
+    supabase.from('match_records').select('*', { count: 'exact', head: true }).eq('member_id', props.member.id),
+    supabase.from('match_records').select('*').eq('member_id', props.member.id)
+      .order('played_at', { ascending: false }).range(0, PAGE_SIZE - 1),
+  ])
 
-  // 전체 카운트 (첫 로드 시만)
-  if (!append) {
-    const { count } = await supabase
-      .from('match_records')
-      .select('*', { count: 'exact', head: true })
-      .eq('member_id', props.member.id)
-    totalCount.value = count ?? 0
-  }
-
-  const { data, error } = await supabase
-    .from('match_records')
-    .select('*')
-    .eq('member_id', props.member.id)
-    .order('played_at', { ascending: false })
-    .range(from, to)
-
-  if (error) {
-    console.error('match_records 로드 실패:', error)
-    loadingRecords.value = false
-    loadingMore.value = false
-    return
-  }
-
-  const rows = data ?? []
-  if (append) records.value = [...records.value, ...rows]
-  else records.value = rows
-
-  // 더보기 여부: 로드된 총 건수 vs 전체 카운트
+  matchData.value = mdResult.data ?? null
+  totalCount.value = countResult.count ?? 0
+  records.value = recordsResult.data ?? []
   hasMore.value = records.value.length < totalCount.value
-
   loadingRecords.value = false
-  loadingMore.value = false
 }
 
 async function loadMore() {
   if (loadingMore.value) return
+  loadingMore.value = true
   page.value++
-  await loadRecords(true)
+  const from = page.value * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+  const { data } = await supabase.from('match_records').select('*')
+    .eq('member_id', props.member.id)
+    .order('played_at', { ascending: false })
+    .range(from, to)
+  const rows = data ?? []
+  records.value = [...records.value, ...rows]
+  hasMore.value = records.value.length < totalCount.value
+  loadingMore.value = false
+}
+
+function toggleRecord(rec) {
+  selectedRecord.value = selectedRecord.value?.id === rec.id ? null : rec
 }
 
 function recordDetail(rec) {
