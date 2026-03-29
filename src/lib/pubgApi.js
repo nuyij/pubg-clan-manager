@@ -73,14 +73,13 @@ export function parseMatchData(matchJson) {
       members: memberIds.map(id => participants.get(id)).filter(Boolean),
     })
   }
-  // 전체 참가자 수
   const totalPlayers = participants.size
   return { participants, rosters, totalPlayers }
 }
 
-export async function syncAllMatches({ members, settings, processedMatchIds, seasonRange, onProgress }) {
-  const results = []       // match_data 집계용
-  const records = []       // match_records 상세 기록용
+export async function syncAllMatches({ members, settings, processedMatchIds, seasonRange, dateRange, onProgress }) {
+  const results = []
+  const records = []
   const errors = []
 
   onProgress?.('플레이어 정보 조회 중...')
@@ -130,7 +129,12 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
     if (idx < accountIdToMember.size) await delay(400)
   }
 
-  const newMatchIds = [...allMatchIds].filter(id => !processedMatchIds.has(id))
+  // 기간 지정 갱신: processedMatchIds 무시하고 날짜로만 필터
+  const useDateRange = !!(dateRange?.start && dateRange?.end)
+  const newMatchIds = useDateRange
+    ? [...allMatchIds]  // 기간 지정이면 모든 매치 후보 (날짜 필터는 매치 상세에서)
+    : [...allMatchIds].filter(id => !processedMatchIds.has(id))
+
   if (!newMatchIds.length) return { results: [], records: [], errors, processedCount: 0, message: '새로운 매치가 없습니다' }
 
   onProgress?.(`신규 매치 ${newMatchIds.length}개 처리 중...`)
@@ -142,12 +146,19 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
       const matchJson = await getMatchDetail(matchId)
       const matchCreatedAt = matchJson.data?.attributes?.createdAt
 
-      if (seasonRange && matchCreatedAt) {
+      // 날짜 필터 (시즌 범위 또는 직접 지정 기간)
+      const filterRange = useDateRange ? dateRange : seasonRange
+      if (filterRange && matchCreatedAt) {
         const t = new Date(matchCreatedAt).getTime()
-        if (t < new Date(seasonRange.start).getTime() || t > new Date(seasonRange.end).getTime()) {
+        const start = new Date(filterRange.start).getTime()
+        const end = new Date(filterRange.end).getTime()
+        if (t < start || t > end) {
           processedMatchIds.add(matchId); continue
         }
       }
+
+      // 기간 지정 갱신 시 이미 처리된 매치 스킵
+      if (useDateRange && processedMatchIds.has(matchId)) continue
 
       const { rosters, totalPlayers } = parseMatchData(matchJson)
 
@@ -155,8 +166,18 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
         const clanMems = roster.members.filter(p => accountIdToMember.has(p.playerId))
         if (!clanMems.length) continue
 
-        const isParty = clanMems.length >= 2
-        const hasNewbie = clanMems.some(p => {
+        // ✅ 같은 멤버가 동일 매치에 여러 계정으로 있을 경우 1명으로 처리
+        const seenMemberIds = new Set()
+        const dedupedClanMems = clanMems.filter(p => {
+          const member = accountIdToMember.get(p.playerId)
+          if (!member) return false
+          if (seenMemberIds.has(member.id)) return false
+          seenMemberIds.add(member.id)
+          return true
+        })
+
+        const isParty = dedupedClanMems.length >= 2
+        const hasNewbie = dedupedClanMems.some(p => {
           const m = accountIdToMember.get(p.playerId)
           return m && (m.status === '신규' || m.status === '텟생')
         })
@@ -164,12 +185,17 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
         // 기여도: 생존시간(분) × 인원수 × 가산율
         let contribution = 0
         if (isParty) {
-          const totalSurvivalTime = clanMems.reduce((sum, p) => sum + p.survivalTime, 0)
+          const totalSurvivalTime = dedupedClanMems.reduce((sum, p) => sum + p.survivalTime, 0)
           const multiplier = hasNewbie ? (settings.newbie_bonus ?? 1.5) : 1.0
-          contribution = Math.floor((totalSurvivalTime / 60) * multiplier * clanMems.length)
+          contribution = Math.floor((totalSurvivalTime / 60) * multiplier * dedupedClanMems.length)
         }
 
-        for (const participant of clanMems) {
+        // 파티원 배그 ID 목록
+        const partyMemberNames = dedupedClanMems.map(p =>
+          accountIdToPubgName.get(p.playerId) ?? p.name
+        )
+
+        for (const participant of dedupedClanMems) {
           const member = accountIdToMember.get(participant.playerId)
           const pubgName = accountIdToPubgName.get(participant.playerId) ?? member?.pubg_name
           if (!member || !pubgName) continue
@@ -180,9 +206,9 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
             participant.assists * (settings.assist_weight ?? 5) +
             rankScore
 
-          // 집계용
           results.push({
             pubg_name: pubgName,
+            member_id: member.id,
             matchId, matchCreatedAt,
             kills: participant.kills,
             assists: participant.assists,
@@ -193,7 +219,6 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
             bestPlayerPoints: bestPlayer,
           })
 
-          // 상세 기록용
           records.push({
             match_id: matchId,
             pubg_name: pubgName,
@@ -208,7 +233,8 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
             contribution: contribution,
             best_player_pts: bestPlayer,
             is_party: isParty,
-            party_size: clanMems.length,
+            party_size: dedupedClanMems.length,
+            party_members: partyMemberNames.filter(n => n !== pubgName),
           })
         }
       }

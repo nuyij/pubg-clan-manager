@@ -32,7 +32,7 @@
       </div>
     </div>
     <TipModal :show="showTip" type="mosttime" @close="showTip=false" />
-    <MemberDetailModal v-if="selectedMember" :member="selectedMember" @close="selectedMember=null" />
+    <MemberDetailModal v-if="selectedMember" :member="selectedMember" rank-type="mosttime" @close="selectedMember=null" />
   </div>
 </template>
 <script setup>

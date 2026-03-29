@@ -106,12 +106,40 @@
         <div class="card p-6 max-w-sm w-full animate-slide-up shadow-gold space-y-4">
           <div class="text-center">
             <div class="text-4xl mb-3">🔄</div>
-            <h3 class="font-display font-bold text-lg">데이터 갱신 확인</h3>
-            <p class="text-sm text-clan-muted mt-2">
-              현재 활성 시즌의 신규 매치를 가져옵니다.<br>
-              <span class="text-clan-gold">예상 소요: {{ estimateTime }}</span>
-            </p>
+            <h3 class="font-display font-bold text-lg">데이터 갱신</h3>
           </div>
+
+          <!-- 기간 지정 토글 -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-clan-muted font-mono">기간 직접 지정</span>
+              <button @click="useDateRange = !useDateRange"
+                :class="['relative w-10 h-5 rounded-full transition-colors', useDateRange ? 'bg-clan-gold' : 'bg-clan-border']">
+                <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform',
+                  useDateRange ? 'translate-x-5' : 'translate-x-0.5']" />
+              </button>
+            </div>
+
+            <div v-if="useDateRange" class="space-y-2">
+              <div>
+                <label class="text-xs text-clan-muted font-mono">시작일</label>
+                <input v-model="dateRangeStart" type="datetime-local" class="input-field w-full mt-1 text-xs" />
+              </div>
+              <div>
+                <label class="text-xs text-clan-muted font-mono">종료일</label>
+                <input v-model="dateRangeEnd" type="datetime-local" class="input-field w-full mt-1 text-xs" />
+              </div>
+              <div class="text-[10px] text-yellow-400 font-mono">
+                ⚠️ 기간 지정 시 이미 처리된 매치도 재처리됩니다
+              </div>
+            </div>
+
+            <div v-else class="text-sm text-clan-muted text-center">
+              최종 갱신({{ lastSynced }}) 이후 신규 매치만 처리<br>
+              <span class="text-clan-gold text-xs">예상 소요: {{ estimateTime }}</span>
+            </div>
+          </div>
+
           <div class="flex gap-3">
             <button @click="showConfirm = false" class="flex-1 btn-outline">취소</button>
             <button @click="startSync" class="flex-1 btn-gold">갱신 시작</button>
@@ -146,6 +174,9 @@ const totalMembers = ref(0)
 const processedMatches = ref(0)
 const autoSyncHour = ref(4)
 const apiStatus = ref({ label: '미확인', color: 'text-clan-muted' })
+const useDateRange = ref(false)
+const dateRangeStart = ref('')
+const dateRangeEnd = ref('')
 
 // 타이머
 const elapsedSec = ref(0)
@@ -274,11 +305,17 @@ async function startSync() {
 
     if (syncAborted) return
 
+    // 기간 지정 갱신
+    const dateRange = useDateRange.value && dateRangeStart.value && dateRangeEnd.value
+      ? { start: new Date(dateRangeStart.value).toISOString(), end: new Date(dateRangeEnd.value).toISOString() }
+      : null
+
     const { results, records, errors: errs, processedCount, message } = await syncAllMatches({
       members: membersWithAccounts,
       settings: settingsStore.settings,
       processedMatchIds,
       seasonRange,
+      dateRange,
       onProgress: (msg) => {
         if (syncAborted) return
         progressMsg.value = msg
@@ -334,6 +371,7 @@ async function startSync() {
         p_is_win:       row.total_wins,
         p_contribution: row.contribution_points,
         p_best_player:  row.best_player_points,
+        p_games:        row.total_games,
       })
       if (error) errs.push(`match_data 저장 실패(${row.pubg_name}): ${error.message}`)
     }
