@@ -34,8 +34,9 @@
     </Transition>
   </div>
 </template>
+
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onActivated, watch } from 'vue'
 import { useRankingStore } from '@/stores/ranking'
 import { useSettingsStore } from '@/stores/settings'
 import { useSeasonStore } from '@/stores/season'
@@ -44,26 +45,36 @@ import BestPlayerRanking from '@/components/ranking/BestPlayerRanking.vue'
 import MostTimeRanking from '@/components/ranking/MostTimeRanking.vue'
 import PlayerSearch from '@/components/common/PlayerSearch.vue'
 
+// KeepAlive를 위한 컴포넌트 이름 지정
+defineOptions({ name: 'HomeView' })
+
 const ranking = useRankingStore()
 const settings = useSettingsStore()
 const season = useSeasonStore()
 const activeTab = ref('contribution')
 const tabs = [
   { key: 'contribution', label: '기여도 순위', icon: '🤝' },
-  { key: 'bestplayer', label: '베스트 플레이어', icon: '🔫' },
-  { key: 'mosttime', label: '최장 플레이어', icon: '⏱️' },
+  { key: 'bestplayer',   label: '베스트 플레이어', icon: '🔫' },
+  { key: 'mosttime',     label: '최장 플레이어', icon: '⏱️' },
 ]
 
-onMounted(async () => {
+async function loadData() {
   await Promise.all([settings.fetch(), season.fetchSeasons()])
   await ranking.fetchAll(season.selectedSeasonId)
-})
+}
+
+// 최초 마운트
+onMounted(loadData)
+
+// 관리자→메인 등 페이지 재진입 시 (KeepAlive + onActivated)
+onActivated(loadData)
 
 // 시즌 변경 시 랭킹 다시 로드
 watch(() => season.selectedSeasonId, (id) => ranking.fetchAll(id))
 
 function onSeasonChange(id) { season.selectSeason(id) }
 </script>
+
 <style scoped>
 .tab-fade-enter-active, .tab-fade-leave-active { transition: opacity .2s ease, transform .2s ease }
 .tab-fade-enter-from { opacity: 0; transform: translateY(8px) }

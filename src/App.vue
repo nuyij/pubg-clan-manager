@@ -7,7 +7,12 @@
       <NavBar />
       <LuckyDrawBanner />
       <main class="max-w-6xl mx-auto px-4 py-8">
-        <RouterView />
+        <!-- keep-alive로 HomeView 상태 유지, 관리자→메인 전환 시 onActivated 호출 -->
+        <RouterView v-slot="{ Component }">
+          <KeepAlive :include="['HomeView']">
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </main>
     </template>
   </div>
