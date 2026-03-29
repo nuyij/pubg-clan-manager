@@ -334,7 +334,10 @@ async function loadSyncData() {
 
 // 결과 저장 공통
 async function saveResults({ results, records, history, activeSeason, processedMatchIds, errs }) {
-  // match_data 집계
+  // results가 없으면 바로 반환
+  if (!results.length && !records.length) return 0
+
+  // match_data 집계 (pubg_name별 합산)
   const aggregated = {}
   for (const r of results) {
     if (!aggregated[r.pubg_name]) {
@@ -347,46 +350,69 @@ async function saveResults({ results, records, history, activeSeason, processedM
       }
     }
     const a = aggregated[r.pubg_name]
-    a.total_kills += r.kills; a.total_assists += r.assists
-    a.total_damage += r.damage; a.total_survival_time += r.survivalTime
-    a.total_wins += r.winPlace === 1 ? 1 : 0
-    a.total_games += 1
-    a.contribution_points += r.contributionPoints
-    a.best_player_points += r.bestPlayerPoints
+    a.total_kills         += r.kills ?? 0
+    a.total_assists       += r.assists ?? 0
+    a.total_damage        += r.damage ?? 0
+    a.total_survival_time += r.survivalTime ?? 0
+    a.total_wins          += r.winPlace === 1 ? 1 : 0
+    a.total_games         += 1
+    a.contribution_points += r.contributionPoints ?? 0
+    a.best_player_points  += r.bestPlayerPoints ?? 0
   }
 
   const aggRows = Object.values(aggregated)
+  progressMsg.value = `점수 저장 중... (${aggRows.length}명)`
+
   for (const row of aggRows) {
     if (syncAborted) break
-    const { error } = await supabase.rpc('upsert_match_data', {
-      p_pubg_name: row.pubg_name, p_member_id: row.member_id,
-      p_season_id: row.season_id,
-      p_kills: row.total_kills, p_assists: row.total_assists,
-      p_damage: row.total_damage, p_survival_time: row.total_survival_time,
-      p_is_win: row.total_wins, p_contribution: row.contribution_points,
-      p_best_player: row.best_player_points, p_games: row.total_games,
-    })
-    if (error) errs.push(`점수저장 실패(${row.pubg_name}): ${error.message}`)
+    try {
+      const { error } = await supabase.rpc('upsert_match_data', {
+        p_pubg_name:      row.pubg_name,
+        p_member_id:      row.member_id,
+        p_season_id:      row.season_id,
+        p_kills:          row.total_kills,
+        p_assists:        row.total_assists,
+        p_damage:         row.total_damage,
+        p_survival_time:  row.total_survival_time,
+        p_is_win:         row.total_wins,
+        p_contribution:   row.contribution_points,
+        p_best_player:    row.best_player_points,
+        p_games:          row.total_games,
+      })
+      if (error) errs.push(`점수저장 실패(${row.pubg_name}): ${error.message}`)
+    } catch(e) {
+      errs.push(`점수저장 예외(${row.pubg_name}): ${e.message}`)
+    }
   }
 
   // match_records 배치 저장
   if (records.length && !syncAborted) {
+    progressMsg.value = `게임 기록 저장 중... (${records.length}건)`
     const recordsWithSeason = records.map(r => ({ ...r, season_id: activeSeason?.id ?? null }))
     for (let i = 0; i < recordsWithSeason.length; i += 100) {
       if (syncAborted) break
-      const { error } = await supabase.from('match_records')
-        .upsert(recordsWithSeason.slice(i, i + 100), { onConflict: 'match_id,pubg_name', ignoreDuplicates: true })
-      if (error) errs.push(`게임기록 저장 실패: ${error.message}`)
+      try {
+        const { error } = await supabase.from('match_records')
+          .upsert(recordsWithSeason.slice(i, i + 100), { onConflict: 'match_id,pubg_name', ignoreDuplicates: true })
+        if (error) errs.push(`게임기록 저장 실패: ${error.message}`)
+      } catch(e) {
+        errs.push(`게임기록 예외: ${e.message}`)
+      }
     }
   }
 
   // match_history 저장
   if (!syncAborted) {
-    const newIds = [...processedMatchIds].filter(id => !(history ?? []).some(h => h.match_id === id))
-    if (newIds.length) {
-      await supabase.from('match_history').insert(
-        newIds.map(id => ({ match_id: id, season_id: activeSeason?.id ?? null }))
-      )
+    try {
+      const newIds = [...processedMatchIds].filter(id => !(history ?? []).some(h => h.match_id === id))
+      if (newIds.length) {
+        const { error } = await supabase.from('match_history').insert(
+          newIds.map(id => ({ match_id: id, season_id: activeSeason?.id ?? null }))
+        )
+        if (error) errs.push(`매치히스토리 저장 실패: ${error.message}`)
+      }
+    } catch(e) {
+      errs.push(`매치히스토리 예외: ${e.message}`)
     }
   }
 
@@ -401,7 +427,9 @@ async function startSync() {
   const startTime = Date.now()
 
   try {
+    console.log('[SYNC] 1. loadSyncData 시작')
     const { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange } = await loadSyncData()
+    console.log('[SYNC] 2. loadSyncData 완료 - 멤버수:', membersWithAccounts.length, '처리된매치:', processedMatchIds.size)
 
     const { results, records, errors: errs, processedCount, skippedCount, message } = await syncAllMatches({
       members: membersWithAccounts, settings: settingsStore.settings,
@@ -414,10 +442,12 @@ async function startSync() {
     })
 
     if (syncAborted) return
+    console.log('[SYNC] 3. syncAllMatches 완료 - results:', results.length, 'records:', records.length, 'errors:', errs)
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
 
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
 
+    console.log('[SYNC] 4. saveResults 완료 - saved:', saved)
     if (!syncAborted) {
       await settingsStore.save({ last_synced_at: new Date().toISOString() })
       await rankingStore.fetchAll(activeSeason?.id)
@@ -461,6 +491,7 @@ async function startManualSync() {
     })
 
     if (syncAborted) return
+    console.log('[SYNC] 3. syncAllMatches 완료 - results:', results.length, 'records:', records.length, 'errors:', errs)
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
 
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
