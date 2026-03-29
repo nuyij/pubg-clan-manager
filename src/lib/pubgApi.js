@@ -3,6 +3,9 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+// 집계 대상 게임 모드 (경쟁전만)
+const ALLOWED_GAME_MODES = ['ranked', 'ranked-tpp']
+
 async function pubgFetch(path) {
   const url = `${SUPABASE_URL}/functions/v1/pubg-proxy?path=${encodeURIComponent(path)}`
   let res
@@ -73,11 +76,115 @@ export function parseMatchData(matchJson) {
       members: memberIds.map(id => participants.get(id)).filter(Boolean),
     })
   }
-  const totalPlayers = participants.size
-  return { participants, rosters, totalPlayers }
+  return { participants, rosters, totalPlayers: participants.size }
 }
 
-export async function syncAllMatches({ members, settings, processedMatchIds, seasonRange, dateRange, onProgress }) {
+/**
+ * 단일 매치 처리 로직 (일반 갱신 + match_id 직접 입력 공통 사용)
+ */
+function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPubgName, settings, seasonRange }) {
+  const results = []
+  const records = []
+
+  const matchCreatedAt = matchJson.data?.attributes?.createdAt
+  const gameMode = matchJson.data?.attributes?.gameMode ?? ''
+
+  // 경쟁전 모드만 처리
+  if (!ALLOWED_GAME_MODES.includes(gameMode)) {
+    return { results, records, skipped: true, reason: `게임모드 제외 (${gameMode})` }
+  }
+
+  // 시즌 기간 필터
+  if (seasonRange && matchCreatedAt) {
+    const t = new Date(matchCreatedAt).getTime()
+    if (t < new Date(seasonRange.start).getTime() || t > new Date(seasonRange.end).getTime()) {
+      return { results, records, skipped: true, reason: '시즌 기간 외' }
+    }
+  }
+
+  const { rosters, totalPlayers } = parseMatchData(matchJson)
+
+  for (const roster of rosters) {
+    const clanMems = roster.members.filter(p => accountIdToMember.has(p.playerId))
+    if (!clanMems.length) continue
+
+    // 동일 멤버 중복 제거 (다중 계정 대리플레이 등)
+    const seenMemberIds = new Set()
+    const dedupedClanMems = clanMems.filter(p => {
+      const member = accountIdToMember.get(p.playerId)
+      if (!member || seenMemberIds.has(member.id)) return false
+      seenMemberIds.add(member.id)
+      return true
+    })
+
+    const isParty = dedupedClanMems.length >= 2
+    const hasNewbie = dedupedClanMems.some(p => {
+      const m = accountIdToMember.get(p.playerId)
+      return m && (m.status === '신규' || m.status === '텟생')
+    })
+
+    let contribution = 0
+    if (isParty) {
+      const totalSurvivalTime = dedupedClanMems.reduce((sum, p) => sum + p.survivalTime, 0)
+      const multiplier = hasNewbie ? (settings.newbie_bonus ?? 1.5) : 1.0
+      contribution = Math.floor((totalSurvivalTime / 60) * multiplier * dedupedClanMems.length)
+    }
+
+    const partyMemberNames = dedupedClanMems.map(p =>
+      accountIdToPubgName.get(p.playerId) ?? p.name
+    )
+
+    for (const participant of dedupedClanMems) {
+      const member = accountIdToMember.get(participant.playerId)
+      const pubgName = accountIdToPubgName.get(participant.playerId) ?? member?.pubg_name
+      if (!member || !pubgName) continue
+
+      const rankScore = settings.rank_scores?.[String(roster.rank)] ?? 0
+      const bestPlayer =
+        participant.kills * (settings.kill_weight ?? 10) +
+        participant.assists * (settings.assist_weight ?? 5) +
+        rankScore
+
+      results.push({
+        pubg_name: pubgName,
+        member_id: member.id,
+        matchId, matchCreatedAt,
+        kills: participant.kills,
+        assists: participant.assists,
+        damage: participant.damage,
+        survivalTime: participant.survivalTime,
+        winPlace: roster.rank,
+        contributionPoints: contribution,
+        bestPlayerPoints: bestPlayer,
+      })
+
+      records.push({
+        match_id: matchId,
+        pubg_name: pubgName,
+        member_id: member.id,
+        played_at: matchCreatedAt,
+        kills: participant.kills,
+        assists: participant.assists,
+        damage: participant.damage,
+        survival_time: participant.survivalTime,
+        win_place: roster.rank,
+        total_players: totalPlayers,
+        contribution: contribution,
+        best_player_pts: bestPlayer,
+        is_party: isParty,
+        party_size: dedupedClanMems.length,
+        party_members: partyMemberNames.filter(n => n !== pubgName),
+      })
+    }
+  }
+
+  return { results, records, skipped: false }
+}
+
+/**
+ * 일반 자동 갱신 (최근 20경기 기준)
+ */
+export async function syncAllMatches({ members, settings, processedMatchIds, seasonRange, onProgress }) {
   const results = []
   const records = []
   const errors = []
@@ -129,121 +236,105 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
     if (idx < accountIdToMember.size) await delay(400)
   }
 
-  // 기간 지정 갱신: processedMatchIds 무시하고 날짜로만 필터
-  const useDateRange = !!(dateRange?.start && dateRange?.end)
-  const newMatchIds = useDateRange
-    ? [...allMatchIds]  // 기간 지정이면 모든 매치 후보 (날짜 필터는 매치 상세에서)
-    : [...allMatchIds].filter(id => !processedMatchIds.has(id))
-
+  const newMatchIds = [...allMatchIds].filter(id => !processedMatchIds.has(id))
   if (!newMatchIds.length) return { results: [], records: [], errors, processedCount: 0, message: '새로운 매치가 없습니다' }
 
   onProgress?.(`신규 매치 ${newMatchIds.length}개 처리 중...`)
+  let skippedCount = 0
 
   for (let i = 0; i < newMatchIds.length; i++) {
     const matchId = newMatchIds[i]
     onProgress?.(`매치 처리 중 (${i + 1}/${newMatchIds.length})`)
     try {
       const matchJson = await getMatchDetail(matchId)
-      const matchCreatedAt = matchJson.data?.attributes?.createdAt
-
-      // 날짜 필터 (시즌 범위 또는 직접 지정 기간)
-      const filterRange = useDateRange ? dateRange : seasonRange
-      if (filterRange && matchCreatedAt) {
-        const t = new Date(matchCreatedAt).getTime()
-        const start = new Date(filterRange.start).getTime()
-        const end = new Date(filterRange.end).getTime()
-        if (t < start || t > end) {
-          processedMatchIds.add(matchId); continue
-        }
-      }
-
-      // 기간 지정 갱신 시 이미 처리된 매치 스킵
-      if (useDateRange && processedMatchIds.has(matchId)) continue
-
-      const { rosters, totalPlayers } = parseMatchData(matchJson)
-
-      for (const roster of rosters) {
-        const clanMems = roster.members.filter(p => accountIdToMember.has(p.playerId))
-        if (!clanMems.length) continue
-
-        // ✅ 같은 멤버가 동일 매치에 여러 계정으로 있을 경우 1명으로 처리
-        const seenMemberIds = new Set()
-        const dedupedClanMems = clanMems.filter(p => {
-          const member = accountIdToMember.get(p.playerId)
-          if (!member) return false
-          if (seenMemberIds.has(member.id)) return false
-          seenMemberIds.add(member.id)
-          return true
-        })
-
-        const isParty = dedupedClanMems.length >= 2
-        const hasNewbie = dedupedClanMems.some(p => {
-          const m = accountIdToMember.get(p.playerId)
-          return m && (m.status === '신규' || m.status === '텟생')
-        })
-
-        // 기여도: 생존시간(분) × 인원수 × 가산율
-        let contribution = 0
-        if (isParty) {
-          const totalSurvivalTime = dedupedClanMems.reduce((sum, p) => sum + p.survivalTime, 0)
-          const multiplier = hasNewbie ? (settings.newbie_bonus ?? 1.5) : 1.0
-          contribution = Math.floor((totalSurvivalTime / 60) * multiplier * dedupedClanMems.length)
-        }
-
-        // 파티원 배그 ID 목록
-        const partyMemberNames = dedupedClanMems.map(p =>
-          accountIdToPubgName.get(p.playerId) ?? p.name
-        )
-
-        for (const participant of dedupedClanMems) {
-          const member = accountIdToMember.get(participant.playerId)
-          const pubgName = accountIdToPubgName.get(participant.playerId) ?? member?.pubg_name
-          if (!member || !pubgName) continue
-
-          const rankScore = settings.rank_scores?.[String(roster.rank)] ?? 0
-          const bestPlayer =
-            participant.kills * (settings.kill_weight ?? 10) +
-            participant.assists * (settings.assist_weight ?? 5) +
-            rankScore
-
-          results.push({
-            pubg_name: pubgName,
-            member_id: member.id,
-            matchId, matchCreatedAt,
-            kills: participant.kills,
-            assists: participant.assists,
-            damage: participant.damage,
-            survivalTime: participant.survivalTime,
-            winPlace: roster.rank,
-            contributionPoints: contribution,
-            bestPlayerPoints: bestPlayer,
-          })
-
-          records.push({
-            match_id: matchId,
-            pubg_name: pubgName,
-            member_id: member.id,
-            played_at: matchCreatedAt,
-            kills: participant.kills,
-            assists: participant.assists,
-            damage: participant.damage,
-            survival_time: participant.survivalTime,
-            win_place: roster.rank,
-            total_players: totalPlayers,
-            contribution: contribution,
-            best_player_pts: bestPlayer,
-            is_party: isParty,
-            party_size: dedupedClanMems.length,
-            party_members: partyMemberNames.filter(n => n !== pubgName),
-          })
-        }
-      }
-
+      const { results: r, records: rec, skipped, reason } = processOneMatch({
+        matchJson, matchId, accountIdToMember, accountIdToPubgName, settings, seasonRange
+      })
+      if (skipped) { skippedCount++; }
+      else { results.push(...r); records.push(...rec) }
       processedMatchIds.add(matchId)
     } catch (e) {
       errors.push(`매치 ${matchId.slice(0, 8)}: ${e.message}`)
     }
     if (i < newMatchIds.length - 1) await delay(250)
   }
-  return { results, records, errors, processedCount: newMatchIds.length }
+
+  return {
+    results, records, errors,
+    processedCount: newMatchIds.length,
+    skippedCount,
+    message: skippedCount > 0 ? `경쟁전 외 ${skippedCount}개 제외됨` : ''
+  }
+}
+
+/**
+ * match_id 직접 입력 처리
+ * 시즌 누락 매치 보완용
+ */
+export async function syncMatchIds({ matchIds, members, settings, processedMatchIds, seasonRange, onProgress }) {
+  const results = []
+  const records = []
+  const errors = []
+  const skipped = []
+  const alreadyProcessed = []
+
+  onProgress?.('플레이어 정보 조회 중...')
+
+  const allPubgNames = []
+  for (const m of members) {
+    if (m.pubg_accounts?.length) m.pubg_accounts.forEach(a => { if (a.pubg_name) allPubgNames.push(a.pubg_name) })
+    else if (m.pubg_name) allPubgNames.push(m.pubg_name)
+  }
+
+  let pubgPlayers = []
+  for (let i = 0; i < allPubgNames.length; i += 10) {
+    try {
+      const players = await getPlayersByNames(allPubgNames.slice(i, i + 10))
+      pubgPlayers.push(...players)
+      if (i + 10 < allPubgNames.length) await delay(400)
+    } catch (e) { throw new Error('플레이어 조회 실패: ' + e.message) }
+  }
+
+  const nameToAccountId = new Map()
+  for (const p of pubgPlayers) nameToAccountId.set(p.attributes.name.toLowerCase(), p.id)
+
+  const accountIdToMember = new Map()
+  const accountIdToPubgName = new Map()
+  for (const m of members) {
+    const names = m.pubg_accounts?.length
+      ? m.pubg_accounts.map(a => a.pubg_name).filter(Boolean)
+      : m.pubg_name ? [m.pubg_name] : []
+    for (const name of names) {
+      const accountId = nameToAccountId.get(name.toLowerCase())
+      if (accountId) { accountIdToMember.set(accountId, m); accountIdToPubgName.set(accountId, name) }
+    }
+  }
+
+  for (let i = 0; i < matchIds.length; i++) {
+    const matchId = matchIds[i].trim()
+    if (!matchId) continue
+
+    onProgress?.(`매치 처리 중 (${i + 1}/${matchIds.length}): ${matchId.slice(0, 12)}...`)
+
+    // 이미 처리된 매치
+    if (processedMatchIds.has(matchId)) {
+      alreadyProcessed.push(matchId)
+      continue
+    }
+
+    try {
+      const matchJson = await getMatchDetail(matchId)
+      const { results: r, records: rec, skipped: s, reason } = processOneMatch({
+        matchJson, matchId, accountIdToMember, accountIdToPubgName, settings, seasonRange
+      })
+      if (s) skipped.push({ matchId, reason })
+      else { results.push(...r); records.push(...rec) }
+      processedMatchIds.add(matchId)
+    } catch (e) {
+      errors.push(`${matchId.slice(0, 12)}: ${e.message}`)
+    }
+    if (i < matchIds.length - 1) await delay(300)
+  }
+
+  return { results, records, errors, skipped, alreadyProcessed, processedCount: matchIds.length }
 }
