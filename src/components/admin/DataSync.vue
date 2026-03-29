@@ -362,10 +362,12 @@ async function saveResults({ results, records, history, activeSeason, processedM
 
   const aggRows = Object.values(aggregated)
   progressMsg.value = `점수 저장 중... (${aggRows.length}명)`
+  console.log('[SAVE] aggRows:', aggRows.length, '첫번째:', aggRows[0])
 
   for (const row of aggRows) {
     if (syncAborted) break
     try {
+      console.log('[RPC] 호출:', row.pubg_name, 'season_id:', row.season_id)
       const { error } = await supabase.rpc('upsert_match_data', {
         p_pubg_name:      row.pubg_name,
         p_member_id:      row.member_id,
@@ -379,15 +381,19 @@ async function saveResults({ results, records, history, activeSeason, processedM
         p_best_player:    row.best_player_points,
         p_games:          row.total_games,
       })
+      console.log('[RPC] 완료:', row.pubg_name, 'error:', error?.message)
       if (error) errs.push(`점수저장 실패(${row.pubg_name}): ${error.message}`)
     } catch(e) {
+      console.log('[RPC] 예외:', e.message)
       errs.push(`점수저장 예외(${row.pubg_name}): ${e.message}`)
     }
   }
+  console.log('[SAVE] RPC 완료')
 
   // match_records 배치 저장
   if (records.length && !syncAborted) {
     progressMsg.value = `게임 기록 저장 중... (${records.length}건)`
+    console.log('[SAVE] match_records 저장 시작:', records.length)
     const recordsWithSeason = records.map(r => ({ ...r, season_id: activeSeason?.id ?? null }))
     for (let i = 0; i < recordsWithSeason.length; i += 100) {
       if (syncAborted) break
