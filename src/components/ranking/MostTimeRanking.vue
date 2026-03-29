@@ -49,7 +49,19 @@ const barWidth = (s) => `${(s/maxTime.value)*100}%`
 const avgMin = (item) => item.total_games ? Math.floor(item.total_survival_time/item.total_games/60) : 0
 async function openDetail(item) {
   if (ranking.useSample) return
-  const { data } = await supabase.from('members').select('*, member_pubg_accounts(*)').eq('id', item.member_id).single()
+  if (!item.member_id) {
+    // member_id 없으면 pubg_name으로 조회
+    const { data } = await supabase.from('members')
+      .select('*, member_pubg_accounts(*)')
+      .eq('pubg_name', item.pubg_name)
+      .maybeSingle()
+    if (data) selectedMember.value = data
+    return
+  }
+  const { data } = await supabase.from('members')
+    .select('*, member_pubg_accounts(*)')
+    .eq('id', item.member_id)
+    .maybeSingle()
   if (data) selectedMember.value = data
 }
 </script>

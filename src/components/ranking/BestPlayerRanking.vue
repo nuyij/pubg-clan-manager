@@ -72,7 +72,19 @@ const avgKD = (item) => item.total_games ? (item.total_kills / item.total_games)
 const avgDmg = (item) => item.total_games ? Math.floor(item.total_damage / item.total_games).toLocaleString() : '0'
 async function openDetail(item) {
   if (ranking.useSample) return
-  const { data } = await supabase.from('members').select('*, member_pubg_accounts(*)').eq('id', item.member_id).single()
+  if (!item.member_id) {
+    // member_id 없으면 pubg_name으로 조회
+    const { data } = await supabase.from('members')
+      .select('*, member_pubg_accounts(*)')
+      .eq('pubg_name', item.pubg_name)
+      .maybeSingle()
+    if (data) selectedMember.value = data
+    return
+  }
+  const { data } = await supabase.from('members')
+    .select('*, member_pubg_accounts(*)')
+    .eq('id', item.member_id)
+    .maybeSingle()
   if (data) selectedMember.value = data
 }
 </script>

@@ -85,7 +85,19 @@ const pool = computed(() => ranking.getLuckyDrawPool(settings.settings.lucky_dra
 const topClass = (r) => r===1?'border-yellow-500/50 shadow-gold':r===2?'border-gray-400/30':'border-amber-700/30'
 async function openDetail(item) {
   if (ranking.useSample) return
-  const { data } = await supabase.from('members').select('*, member_pubg_accounts(*)').eq('id', item.member_id).single()
+  if (!item.member_id) {
+    // member_id 없으면 pubg_name으로 조회
+    const { data } = await supabase.from('members')
+      .select('*, member_pubg_accounts(*)')
+      .eq('pubg_name', item.pubg_name)
+      .maybeSingle()
+    if (data) selectedMember.value = data
+    return
+  }
+  const { data } = await supabase.from('members')
+    .select('*, member_pubg_accounts(*)')
+    .eq('id', item.member_id)
+    .maybeSingle()
   if (data) selectedMember.value = data
 }
 </script>
