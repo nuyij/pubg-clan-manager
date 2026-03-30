@@ -1,5 +1,4 @@
 <template>
-  <Teleport to="body">
     <div class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"
       @click.self="$emit('close')">
       <div class="card max-w-2xl w-full animate-slide-up shadow-gold flex flex-col max-h-[90vh]">
@@ -130,7 +129,6 @@
         </div>
       </div>
     </div>
-  </Teleport>
 </template>
 
 <script setup>

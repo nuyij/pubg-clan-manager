@@ -7,7 +7,6 @@
       <NavBar />
       <LuckyDrawBanner />
       <main class="max-w-6xl mx-auto px-4 py-8">
-        <!-- keep-alive로 HomeView 상태 유지, 관리자→메인 전환 시 onActivated 호출 -->
         <RouterView v-slot="{ Component }">
           <KeepAlive :include="['HomeView']">
             <component :is="Component" />
@@ -23,6 +22,10 @@ import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import NavBar from '@/components/common/NavBar.vue'
 import LuckyDrawBanner from '@/components/common/LuckyDrawBanner.vue'
+import { initVisibilityPing } from '@/lib/supabase'
 const auth = useAuthStore()
-onMounted(() => auth.init())
+onMounted(() => {
+  auth.init()
+  initVisibilityPing()
+})
 </script>
