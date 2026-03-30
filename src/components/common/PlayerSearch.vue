@@ -1,8 +1,14 @@
 <template>
   <div class="relative">
     <div class="flex gap-2">
-      <input v-model="query" type="text" placeholder="배그 ID로 검색 (다중 계정 모두 검색됨)"
-        class="input-field flex-1" @keyup.enter="search" @input="onInput" />
+      <input
+        v-model="query"
+        type="text"
+        placeholder="배그 ID로 검색..."
+        class="input-field flex-1"
+        @keyup.enter="search"
+        @input="onInput"
+      />
       <button @click="search" :disabled="!query.trim() || loading" class="btn-outline px-4">
         <svg v-if="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -16,19 +22,14 @@
 
     <!-- 검색 결과 드롭다운 -->
     <div v-if="results.length" class="absolute top-full left-0 right-0 mt-1 card border border-clan-border z-30 overflow-hidden shadow-card">
-      <div v-for="r in results" :key="r.id"
+      <div
+        v-for="r in results" :key="r.id"
         class="px-4 py-3 hover:bg-clan-surface cursor-pointer border-b border-clan-border/50 last:border-0 flex items-center gap-3"
-        @click="selectResult(r)">
+        @click="selectResult(r)"
+      >
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-bold text-clan-text">{{ r.clan_nickname || r.pubg_name || '닉네임 미설정' }}</div>
-          <div class="text-xs text-clan-muted font-mono">
-            <!-- 매칭된 배그 ID 강조 표시 -->
-            <span v-for="acc in r.pubg_accounts" :key="acc.pubg_name"
-              :class="['mr-2', acc.pubg_name.toLowerCase().includes(query.toLowerCase()) ? 'text-clan-gold' : '']">
-              {{ acc.pubg_name }}{{ acc.is_primary ? ' ★' : '' }}
-            </span>
-            <span v-if="!r.pubg_accounts?.length && r.pubg_name">{{ r.pubg_name }}</span>
-          </div>
+          <div class="text-sm font-bold text-clan-text">{{ r.clan_nickname || '닉네임 미설정' }}</div>
+          <div class="text-xs text-clan-muted font-mono">배그 ID: {{ r.pubg_name }}</div>
         </div>
         <span :class="['text-xs px-2 py-0.5 rounded font-mono', statusClass(r.status)]">{{ r.status }}</span>
       </div>
@@ -40,14 +41,34 @@
   </div>
 
   <!-- 선택된 유저 상세 -->
-  <MemberDetailModal v-if="selected" :member="selected" @close="selected = null" />
+  <div v-if="selected" class="mt-4 card p-5 animate-slide-up space-y-4">
+    <div class="flex items-center justify-between">
+      <div>
+        <div class="font-display text-lg font-bold text-clan-text">{{ selected.clan_nickname || '닉네임 미설정' }}</div>
+        <div class="text-xs text-clan-muted font-mono">배그 ID: {{ selected.pubg_name }}</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span :class="['text-xs px-2 py-1 rounded font-mono', statusClass(selected.status)]">{{ selected.status }}</span>
+        <button @click="selected = null" class="text-clan-muted hover:text-clan-text text-xs">✕</button>
+      </div>
+    </div>
+
+    <!-- 통계 -->
+    <div v-if="selected.match_data?.length" class="grid grid-cols-3 gap-3">
+      <div v-for="stat in statCards" :key="stat.label" class="bg-clan-surface rounded p-3 text-center">
+        <div class="font-mono font-bold" :class="stat.color">{{ stat.value }}</div>
+        <div class="text-xs text-clan-muted mt-0.5">{{ stat.label }}</div>
+      </div>
+    </div>
+    <div v-else class="text-xs text-clan-muted text-center py-2">아직 기록된 전적이 없습니다</div>
+  </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { supabase } from '@/lib/supabase'
-import MemberDetailModal from '@/components/common/MemberDetailModal.vue'
+import { ref, computed } from 'vue'
+import { useRankingStore } from '@/stores/ranking'
 
+const ranking = useRankingStore()
 const query = ref('')
 const results = ref([])
 const selected = ref(null)
@@ -64,37 +85,7 @@ function onInput() {
 async function search() {
   if (!query.value.trim()) return
   loading.value = true; searched.value = false
-
-  // members.pubg_name + member_pubg_accounts.pubg_name 모두 검색
-  const q = query.value.trim()
-  const [{ data: byMain }, { data: byAccounts }] = await Promise.all([
-    supabase.from('members').select('*, member_pubg_accounts(*)')
-      .ilike('pubg_name', `%${q}%`).limit(5),
-    supabase.from('member_pubg_accounts').select('member_id, pubg_name')
-      .ilike('pubg_name', `%${q}%`).limit(10),
-  ])
-
-  // 부계정 검색 결과로 member_id 수집
-  const extraMemberIds = [...new Set((byAccounts ?? []).map(a => a.member_id))]
-  let extraMembers = []
-  if (extraMemberIds.length) {
-    const { data } = await supabase.from('members')
-      .select('*, member_pubg_accounts(*)')
-      .in('id', extraMemberIds)
-    extraMembers = data ?? []
-  }
-
-  // 중복 제거 후 합치기
-  const allResults = [...(byMain ?? []), ...extraMembers]
-  const seen = new Set()
-  results.value = allResults.filter(m => {
-    if (seen.has(m.id)) return false
-    seen.add(m.id)
-    // pubg_accounts 정규화
-    m.pubg_accounts = m.member_pubg_accounts ?? []
-    return true
-  })
-
+  results.value = await ranking.searchByPubgName(query.value.trim())
   searched.value = true; loading.value = false
 }
 
@@ -105,8 +96,22 @@ function selectResult(r) {
   searched.value = false
 }
 
-const statusClass = (s) =>
-  s === '신규' ? 'bg-blue-900/40 text-blue-400 border border-blue-700/30' :
-  s === '텟생' ? 'bg-purple-900/40 text-purple-400 border border-purple-700/30' :
-  'bg-green-900/40 text-green-400 border border-green-700/30'
+const statCards = computed(() => {
+  const d = selected.value?.match_data?.[0]
+  if (!d) return []
+  return [
+    { label: '기여도', value: d.contribution_points + '점', color: 'text-clan-gold' },
+    { label: '킬/어시', value: `${d.total_kills}/${d.total_assists}`, color: 'text-red-400' },
+    { label: '생존시간', value: ranking.formatTime(d.total_survival_time), color: 'text-blue-400' },
+    { label: '총 게임', value: d.total_games + '판', color: 'text-clan-text-dim' },
+    { label: '베스트', value: Math.floor(d.best_player_points) + '점', color: 'text-green-400' },
+    { label: '총 딜', value: Math.floor(d.total_damage).toLocaleString(), color: 'text-orange-400' },
+  ]
+})
+
+function statusClass(s) {
+  if (s === '신규') return 'bg-blue-900/40 text-blue-400 border border-blue-700/30'
+  if (s === '텟생') return 'bg-purple-900/40 text-purple-400 border border-purple-700/30'
+  return 'bg-green-900/40 text-green-400 border border-green-700/30'
+}
 </script>

@@ -14,8 +14,7 @@
     <div v-else-if="!ranking.mostTimeRanking.length" class="text-center py-20 text-clan-muted"><div class="text-5xl mb-4">⏱️</div><p class="font-display tracking-wider">아직 기록된 데이터가 없습니다</p></div>
     <div v-else class="card overflow-hidden">
       <div v-for="item in ranking.mostTimeRanking" :key="item.display_name"
-        class="border-b border-clan-border/50 last:border-0 px-4 py-4 hover:bg-clan-surface/40 transition-colors relative cursor-pointer"
-        @click="openDetail(item)">
+        class="border-b border-clan-border/50 last:border-0 px-4 py-4 hover:bg-clan-surface/40 transition-colors relative">
         <div class="absolute inset-y-0 left-0 opacity-10 transition-all duration-700"
           :class="item.rank===1?'bg-yellow-500':'bg-clan-gold'" :style="{ width: barWidth(item.total_survival_time) }" />
         <div class="relative flex items-center gap-4">
@@ -32,24 +31,15 @@
       </div>
     </div>
     <TipModal :show="showTip" type="mosttime" @close="showTip=false" />
-    <MemberDetailModal v-if="selectedMember" :member="selectedMember" @close="selectedMember=null" />
   </div>
 </template>
 <script setup>
 import { ref, computed } from 'vue'
 import { useRankingStore } from '@/stores/ranking'
-import { supabase } from '@/lib/supabase'
 import TipModal from '@/components/common/TipModal.vue'
-import MemberDetailModal from '@/components/common/MemberDetailModal.vue'
 const ranking = useRankingStore()
 const showTip = ref(false)
-const selectedMember = ref(null)
 const maxTime = computed(() => ranking.mostTimeRanking[0]?.total_survival_time ?? 1)
 const barWidth = (s) => `${(s/maxTime.value)*100}%`
 const avgMin = (item) => item.total_games ? Math.floor(item.total_survival_time/item.total_games/60) : 0
-async function openDetail(item) {
-  if (ranking.useSample) return
-  const { data } = await supabase.from('members').select('*, member_pubg_accounts(*)').eq('id', item.member_id).single()
-  if (data) selectedMember.value = data
-}
 </script>

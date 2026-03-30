@@ -211,7 +211,7 @@ async function startSync() {
     const activeSeason = seasonStore.activeSeason
     const seasonRange = activeSeason ? { start: activeSeason.started_at, end: new Date().toISOString() } : null
 
-    const { results, records, errors: errs, processedCount, message } = await syncAllMatches({
+    const { results, errors: errs, processedCount, message } = await syncAllMatches({
       members: membersWithAccounts, settings: settingsStore.settings, processedMatchIds, seasonRange,
       onProgress: (msg) => { progressMsg.value = msg; progressPct.value = Math.min(progressPct.value + 8, 90) }
     })
@@ -232,19 +232,6 @@ async function startSync() {
         p_contribution: r.contributionPoints, p_best_player: r.bestPlayerPoints,
       })
       if (error) errs.push(`점수저장 실패(${r.pubg_name}): ${error.message}`)
-    }
-
-    // 게임 상세 기록 저장 (match_records)
-    if (records.length) {
-      const recordsWithSeason = records.map(r => ({
-        ...r,
-        season_id: activeSeason?.id ?? null,
-      }))
-      // 중복 방지: match_id + pubg_name 조합으로 upsert
-      const { error: recErr } = await supabase
-        .from('match_records')
-        .upsert(recordsWithSeason, { onConflict: 'match_id,pubg_name', ignoreDuplicates: true })
-      if (recErr) errs.push(`게임기록 저장 실패: ${recErr.message}`)
     }
 
     // 매치 히스토리 저장

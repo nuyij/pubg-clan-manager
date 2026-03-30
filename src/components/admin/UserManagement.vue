@@ -9,7 +9,9 @@
         <input v-model="newUser.pubg_name" type="text" placeholder="배그 인게임 ID" class="input-field flex-1 min-w-36" @keyup.enter="addUser" />
         <input v-model="newUser.clan_nickname" type="text" placeholder="클랜 닉네임" class="input-field flex-1 min-w-36" />
         <select v-model="newUser.status" class="input-field w-28">
+          <option value="신규">신규</option>
           <option value="텟생">텟생</option>
+          <option value="클랜원">클랜원</option>
         </select>
         <button @click="addUser" :disabled="!newUser.pubg_name || adding" class="btn-gold whitespace-nowrap">
           {{ adding ? '추가 중...' : '+ 추가' }}

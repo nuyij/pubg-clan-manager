@@ -8,7 +8,7 @@
         </div>
         <div v-if="type === 'contribution'" class="space-y-3">
           <div class="bg-clan-surface rounded p-3 font-mono text-xs text-clan-text-dim leading-relaxed">
-            기여도 = 생존시간(분) × 인원수 × 가산율<br>
+            기여도 = 생존시간(분) × 인원수 × 가산율<br><br>
             <span class="text-clan-gold">· 파티(2명 이상)일 때만 부여</span><br>
             <span class="text-clan-gold">· 오래 함께 살아있을수록 높은 점수</span><br>
             <span class="text-yellow-500">· 신규/텟생 동반 시 × {{ s.settings.newbie_bonus }}</span>
