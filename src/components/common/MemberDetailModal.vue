@@ -34,7 +34,7 @@
           </button>
         </div>
 
-        <!-- 전체 통계 요약 (match_data 기반 — 더보기와 무관하게 항상 전체) -->
+        <!-- 전체 통계 요약 (match_data 기반) -->
         <div v-if="totalStats" class="grid grid-cols-3 sm:grid-cols-6 gap-2 p-4 border-b border-clan-border shrink-0">
           <div v-for="stat in totalStats" :key="stat.label" class="bg-clan-surface rounded p-2 text-center">
             <div class="font-mono font-bold text-sm" :class="stat.color">{{ stat.value }}</div>
@@ -150,7 +150,7 @@ const PAGE_SIZE = 20
 const hasMore = ref(false)
 const totalCount = ref(0)
 const activeTab = ref(props.rankType)
-const matchData = ref(null) // match_data 테이블에서 가져온 전체 통계
+const matchData = ref(null)
 
 const tabs = [
   { key: 'contribution', label: '🤝 기여도' },
@@ -161,14 +161,13 @@ const tabs = [
 
 const colClass = 'grid-cols-[1fr_3rem_3rem_4rem_5rem_4rem_5rem]'
 
-// 탭 변경 시 선택 초기화만 (목록은 유지)
 watch(activeTab, () => { selectedRecord.value = null })
 
 // 탭별 필터링
+// - 기여도: 파티 게임 + 기여도 > 0 만 표시 (기여도는 파티일 때만 발생)
+// - 베스트/최장/전체: 필터 없이 모든 게임 표시
 const filteredRecords = computed(() => {
   if (activeTab.value === 'contribution') return records.value.filter(r => r.is_party && r.contribution > 0)
-  if (activeTab.value === 'bestplayer')   return records.value.filter(r => r.best_player_pts > 0)
-  if (activeTab.value === 'mosttime')     return records.value.filter(r => r.survival_time > 0)
   return records.value
 })
 
@@ -176,7 +175,7 @@ const pubgAccounts = computed(() =>
   props.member.member_pubg_accounts ?? props.member.pubg_accounts ?? []
 )
 
-// ✅ 전체 통계: match_data 테이블에서 가져온 데이터 (더보기와 무관하게 항상 전체)
+// 전체 통계: match_data에서 member_id 기준 여러 행 합산 (다중 계정 대응)
 const totalStats = computed(() => {
   if (!matchData.value) return null
   const d = matchData.value
@@ -220,7 +219,6 @@ const totalStats = computed(() => {
   ]
 })
 
-// member prop 변경 시 완전 초기화 후 로드
 watch(() => props.member?.id, (newId) => {
   if (!newId) return
   page.value = 0
@@ -235,15 +233,34 @@ async function loadAll() {
   if (!props.member?.id) return
   loadingRecords.value = true
 
-  // 전체 통계 (match_data) + 매치 목록 동시 로드
   const [mdResult, countResult, recordsResult] = await Promise.all([
-    supabase.from('match_data').select('*').eq('member_id', props.member.id).maybeSingle(),
+    // ✅ maybeSingle() 제거 → 여러 행 반환 (다중 계정 합산용)
+    supabase.from('match_data').select('*').eq('member_id', props.member.id),
     supabase.from('match_records').select('*', { count: 'exact', head: true }).eq('member_id', props.member.id),
     supabase.from('match_records').select('*').eq('member_id', props.member.id)
       .order('played_at', { ascending: false }).range(0, PAGE_SIZE - 1),
   ])
 
-  matchData.value = mdResult.data ?? null
+  // 다중 계정: member_id 기준 여러 행 합산
+  const mdRows = mdResult.data ?? []
+  if (mdRows.length === 0) {
+    matchData.value = null
+  } else if (mdRows.length === 1) {
+    matchData.value = mdRows[0]
+  } else {
+    matchData.value = mdRows.reduce((acc, row) => ({
+      ...acc,
+      total_kills:         (acc.total_kills ?? 0) + (row.total_kills ?? 0),
+      total_assists:       (acc.total_assists ?? 0) + (row.total_assists ?? 0),
+      total_damage:        (acc.total_damage ?? 0) + (row.total_damage ?? 0),
+      total_survival_time: (acc.total_survival_time ?? 0) + (row.total_survival_time ?? 0),
+      total_wins:          (acc.total_wins ?? 0) + (row.total_wins ?? 0),
+      total_games:         (acc.total_games ?? 0) + (row.total_games ?? 0),
+      contribution_points: (acc.contribution_points ?? 0) + (row.contribution_points ?? 0),
+      best_player_points:  (acc.best_player_points ?? 0) + (row.best_player_points ?? 0),
+    }))
+  }
+
   totalCount.value = countResult.count ?? 0
   records.value = recordsResult.data ?? []
   hasMore.value = records.value.length < totalCount.value

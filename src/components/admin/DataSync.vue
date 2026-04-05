@@ -97,7 +97,7 @@
       {{ syncing && !manualMode ? (progressMsg || '갱신 중...') : '🔄 배그 API 데이터 강제 갱신' }}
     </button>
 
-    <!-- ── 누락 매치 수동 입력 섹션 ────────────────── -->
+    <!-- 누락 매치 수동 입력 섹션 -->
     <div class="bg-clan-surface rounded-lg p-4 border border-clan-border space-y-4">
       <div class="flex items-center justify-between">
         <div>
@@ -108,35 +108,18 @@
           {{ showManualSection ? '접기 ▲' : '펼치기 ▼' }}
         </button>
       </div>
-
       <div v-if="showManualSection" class="space-y-3">
-        <!-- 안내 -->
         <div class="bg-clan-card rounded p-3 border border-clan-border space-y-2 text-xs text-clan-muted leading-relaxed">
           <div class="text-clan-gold font-mono font-bold text-xs">📌 Match ID 확인 방법</div>
-          <div>
-            1. <a href="https://dak.gg/pubg" target="_blank" class="text-blue-400 underline">dak.gg/pubg</a> 또는
-            <a href="https://pubg.op.gg" target="_blank" class="text-blue-400 underline">pubg.op.gg</a> 접속
-          </div>
-          <div>2. 클랜원 닉네임 검색 → 매치 목록 확인</div>
-          <div>3. 원하는 매치 클릭 → 주소창 URL에서 마지막 ID 복사</div>
-          <div class="font-mono bg-clan-bg rounded p-2 text-clan-text-dim break-all">
-            예시: https://dak.gg/pubg/matches/<span class="text-yellow-400">kakao.match.2024.01.01T00_00_00Z.xxxx</span>
-          </div>
-          <div class="text-yellow-400">⚠️ 경쟁전 매치만 처리됩니다. 다른 모드는 자동으로 제외됩니다.</div>
+          <div>1. <a href="https://dak.gg/pubg" target="_blank" class="text-blue-400 underline">dak.gg/pubg</a> 접속 → 클랜원 닉네임 검색</div>
+          <div>2. 원하는 매치 클릭 → 주소창 URL 복사 (자동 파싱됨)</div>
+          <div class="text-yellow-400">⚠️ squad 모드 경쟁전 매치만 처리됩니다.</div>
         </div>
-
-        <!-- 입력 -->
         <div class="flex gap-2">
-          <input v-model="manualInput" type="text"
-            placeholder="Match ID 입력 (예: kakao.match.2024...)"
-            class="input-field flex-1 font-mono text-xs"
-            @keyup.enter="addManualId" />
-          <button @click="addManualId" :disabled="!manualInput.trim()" class="btn-outline px-4 whitespace-nowrap text-xs">
-            추가
-          </button>
+          <input v-model="manualInput" type="text" placeholder="Match ID 또는 dak.gg URL"
+            class="input-field flex-1 font-mono text-xs" @keyup.enter="addManualId" />
+          <button @click="addManualId" :disabled="!manualInput.trim()" class="btn-outline px-4 whitespace-nowrap text-xs">추가</button>
         </div>
-
-        <!-- 추가된 목록 -->
         <div v-if="manualIds.length" class="space-y-1.5">
           <div class="text-xs text-clan-muted font-mono">처리 예정 ({{ manualIds.length }}개)</div>
           <div v-for="(id, i) in manualIds" :key="id"
@@ -152,41 +135,33 @@
             {{ syncing && manualMode ? (progressMsg || '처리 중...') : `${manualIds.length}개 매치 처리하기` }}
           </button>
         </div>
-
-        <!-- 수동 처리 결과 -->
         <div v-if="manualResult" class="bg-green-900/20 border border-green-700/30 rounded p-3 font-mono text-xs space-y-1">
           <div class="text-green-400">✅ 처리 완료</div>
           <div class="text-clan-muted">처리: {{ manualResult.processed }}개 · 저장: {{ manualResult.saved }}건</div>
-          <div v-if="manualResult.alreadyProcessed.length" class="text-yellow-400">
-            이미 처리됨: {{ manualResult.alreadyProcessed.length }}개
-          </div>
-          <div v-if="manualResult.skipped.length" class="text-clan-muted">
-            제외됨: {{ manualResult.skipped.map(s => `${s.matchId.slice(0,8)}(${s.reason})`).join(', ') }}
-          </div>
+          <div v-if="manualResult.alreadyProcessed.length" class="text-yellow-400">이미 처리됨: {{ manualResult.alreadyProcessed.length }}개</div>
+          <div v-if="manualResult.skipped.length" class="text-clan-muted">제외됨: {{ manualResult.skipped.map(s => `${s.matchId.slice(0,8)}(${s.reason})`).join(', ') }}</div>
         </div>
       </div>
     </div>
 
     <!-- 갱신 확인 모달 -->
-    <Teleport to="body">
-      <div v-if="showConfirm" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
-        <div class="card p-6 max-w-sm w-full animate-slide-up shadow-gold space-y-4">
-          <div class="text-center">
-            <div class="text-4xl mb-3">🔄</div>
-            <h3 class="font-display font-bold text-lg">데이터 갱신 확인</h3>
-            <p class="text-sm text-clan-muted mt-2">
-              최종 갱신({{ lastSynced }}) 이후 신규 매치를 가져옵니다.<br>
-              <span class="text-clan-gold text-xs">경쟁전 매치만 집계됩니다</span><br>
-              <span class="text-clan-gold text-xs">예상 소요: {{ estimateTime }}</span>
-            </p>
-          </div>
-          <div class="flex gap-3">
-            <button @click="showConfirm = false" class="flex-1 btn-outline">취소</button>
-            <button @click="startSync" class="flex-1 btn-gold">갱신 시작</button>
-          </div>
+    <div v-if="showConfirm" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+      <div class="card p-6 max-w-sm w-full animate-slide-up shadow-gold space-y-4">
+        <div class="text-center">
+          <div class="text-4xl mb-3">🔄</div>
+          <h3 class="font-display font-bold text-lg">데이터 갱신 확인</h3>
+          <p class="text-sm text-clan-muted mt-2">
+            최종 갱신({{ lastSynced }}) 이후 신규 매치를 가져옵니다.<br>
+            <span class="text-clan-gold text-xs">squad 경쟁전 매치만 집계됩니다</span><br>
+            <span class="text-clan-gold text-xs">예상 소요: {{ estimateTime }}</span>
+          </p>
+        </div>
+        <div class="flex gap-3">
+          <button @click="showConfirm = false" class="flex-1 btn-outline">취소</button>
+          <button @click="startSync" class="flex-1 btn-gold">갱신 시작</button>
         </div>
       </div>
-    </Teleport>
+    </div>
   </div>
 </template>
 
@@ -220,7 +195,6 @@ const apiStatus = ref({ label: '미확인', color: 'text-clan-muted' })
 const manualInput = ref('')
 const manualIds = ref([])
 
-// 타이머
 const elapsedSec = ref(0)
 const estimatedSec = ref(0)
 let timerInterval = null
@@ -231,17 +205,14 @@ const lastSynced = computed(() => {
   if (!ts) return '없음'
   return new Date(ts).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 })
-
 const estimateTime = computed(() => {
   const m = totalMembers.value || 1
   const secs = Math.ceil(m * 2 + m * 20 * 0.4)
   return secs < 60 ? `약 ${secs}초` : `약 ${Math.ceil(secs / 60)}분`
 })
-
 function formatSec(sec) {
   return sec < 60 ? `${sec}초` : `${Math.floor(sec / 60)}분 ${sec % 60}초`
 }
-
 function startTimer() {
   elapsedSec.value = 0
   timerInterval = setInterval(() => {
@@ -253,21 +224,12 @@ function startTimer() {
     if (elapsedSec.value >= 300) forceStop()
   }, 1000)
 }
-
-function stopTimer() {
-  clearInterval(timerInterval)
-  timerInterval = null
-  estimatedSec.value = 0
-}
-
+function stopTimer() { clearInterval(timerInterval); timerInterval = null; estimatedSec.value = 0 }
 function forceStop() {
-  syncAborted = true
-  syncing.value = false
-  stopTimer()
+  syncAborted = true; syncing.value = false; stopTimer()
   lastError.value = `타임아웃: ${formatSec(elapsedSec.value)} 경과 후 강제 중단`
   progressMsg.value = ''
 }
-
 onUnmounted(() => stopTimer())
 
 onMounted(async () => {
@@ -303,21 +265,18 @@ function confirmSync() {
 function addManualId() {
   const id = manualInput.value.trim()
   if (!id) return
-  // URL에서 match_id 추출 (dak.gg URL 붙여넣기 대응)
   const extracted = id.includes('/matches/') ? id.split('/matches/').pop().split('?')[0] : id
   if (manualIds.value.includes(extracted)) return
   manualIds.value.push(extracted)
   manualInput.value = ''
 }
 
-// 공통 데이터 로드
 async function loadSyncData() {
   const { data: history } = await supabase.from('match_history').select('match_id')
   const processedMatchIds = new Set((history ?? []).map(h => h.match_id))
   const members = await rankingStore.fetchMembers()
   await settingsStore.fetch()
-  const { data: allAccounts } = await supabase
-    .from('member_pubg_accounts').select('member_id, pubg_name, is_primary')
+  const { data: allAccounts } = await supabase.from('member_pubg_accounts').select('member_id, pubg_name, is_primary')
   const accountMap = {}
   for (const acc of (allAccounts ?? [])) {
     if (!accountMap[acc.member_id]) accountMap[acc.member_id] = []
@@ -332,24 +291,25 @@ async function loadSyncData() {
   return { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange }
 }
 
-// 결과 저장 공통
+// ✅ member_id 기준 집계로 변경
 async function saveResults({ results, records, history, activeSeason, processedMatchIds, errs }) {
-  // results가 없으면 바로 반환
   if (!results.length && !records.length) return 0
 
-  // match_data 집계 (pubg_name별 합산)
+  // member_id 기준 집계 (다중 계정 합산)
   const aggregated = {}
   for (const r of results) {
-    if (!aggregated[r.pubg_name]) {
-      aggregated[r.pubg_name] = {
-        pubg_name: r.pubg_name, member_id: r.member_id,
+    const key = r.member_id ?? r.pubg_name
+    if (!aggregated[key]) {
+      aggregated[key] = {
+        pubg_name: r.pubg_name,
+        member_id: r.member_id,
         season_id: activeSeason?.id ?? null,
         total_kills: 0, total_assists: 0, total_damage: 0,
         total_survival_time: 0, total_wins: 0, total_games: 0,
         contribution_points: 0, best_player_points: 0,
       }
     }
-    const a = aggregated[r.pubg_name]
+    const a = aggregated[key]
     a.total_kills         += r.kills ?? 0
     a.total_assists       += r.assists ?? 0
     a.total_damage        += r.damage ?? 0
@@ -363,54 +323,56 @@ async function saveResults({ results, records, history, activeSeason, processedM
   const aggRows = Object.values(aggregated)
   progressMsg.value = `점수 저장 중... (${aggRows.length}명)`
 
-  // RPC 대신 직접 upsert (더 안정적)
   if (aggRows.length) {
     try {
-      const upsertRows = aggRows.map(row => ({
-        pubg_name:          row.pubg_name,
-        member_id:          row.member_id,
-        season_id:          row.season_id,
-        total_kills:        row.total_kills,
-        total_assists:      row.total_assists,
-        total_damage:       row.total_damage,
-        total_survival_time: row.total_survival_time,
-        total_wins:         row.total_wins,
-        total_games:        row.total_games,
-        contribution_points: row.contribution_points,
-        best_player_points: row.best_player_points,
-        updated_at:         new Date().toISOString(),
-      }))
-
-      // 기존 데이터 조회 후 합산
+      // 기존 데이터 조회: member_id 기준
+      const memberIds = aggRows.map(r => r.member_id).filter(Boolean)
       const { data: existing } = await supabase
-        .from('match_data')
-        .select('*')
-        .in('pubg_name', aggRows.map(r => r.pubg_name))
+        .from('match_data').select('*').in('member_id', memberIds)
 
       const existingMap = {}
-      for (const e of (existing ?? [])) existingMap[e.pubg_name] = e
+      for (const e of (existing ?? [])) existingMap[e.member_id] = e
 
-      const finalRows = upsertRows.map(row => {
-        const ex = existingMap[row.pubg_name]
-        if (!ex) return row
+      const finalRows = aggRows.map(row => {
+        const ex = existingMap[row.member_id]
+        if (!ex) return { ...row, updated_at: new Date().toISOString() }
         return {
           ...row,
-          id:                 ex.id,
-          total_kills:        ex.total_kills + row.total_kills,
-          total_assists:      ex.total_assists + row.total_assists,
-          total_damage:       ex.total_damage + row.total_damage,
+          id:                  ex.id,
+          total_kills:         ex.total_kills + row.total_kills,
+          total_assists:       ex.total_assists + row.total_assists,
+          total_damage:        ex.total_damage + row.total_damage,
           total_survival_time: ex.total_survival_time + row.total_survival_time,
-          total_wins:         ex.total_wins + row.total_wins,
-          total_games:        ex.total_games + row.total_games,
+          total_wins:          ex.total_wins + row.total_wins,
+          total_games:         ex.total_games + row.total_games,
           contribution_points: ex.contribution_points + row.contribution_points,
-          best_player_points: ex.best_player_points + row.best_player_points,
+          best_player_points:  ex.best_player_points + row.best_player_points,
+          updated_at:          new Date().toISOString(),
         }
       })
 
-      const { error } = await supabase
-        .from('match_data')
-        .upsert(finalRows, { onConflict: 'pubg_name,season_id' })
-      if (error) errs.push(`match_data 저장 실패: ${error.message}`)
+      // member_id,season_id 기준 수동 upsert (onConflict 대신 update/insert 분리)
+      const toUpdate = finalRows.filter(r => r.id)
+      const toInsert = finalRows.filter(r => !r.id)
+
+      if (toUpdate.length) {
+        for (const row of toUpdate) {
+          const { error } = await supabase.from('match_data').update({
+            total_kills: row.total_kills, total_assists: row.total_assists,
+            total_damage: row.total_damage, total_survival_time: row.total_survival_time,
+            total_wins: row.total_wins, total_games: row.total_games,
+            contribution_points: row.contribution_points, best_player_points: row.best_player_points,
+            updated_at: row.updated_at,
+          }).eq('id', row.id)
+          if (error) errs.push(`match_data update 실패: ${error.message}`)
+        }
+      }
+      if (toInsert.length) {
+        for (const row of toInsert) {
+          const { error } = await supabase.from('match_data').insert(row)
+          if (error) errs.push(`match_data insert 실패: ${error.message}`)
+        }
+      }
     } catch(e) {
       errs.push(`match_data 예외: ${e.message}`)
     }
@@ -426,9 +388,7 @@ async function saveResults({ results, records, history, activeSeason, processedM
         const { error } = await supabase.from('match_records')
           .upsert(recordsWithSeason.slice(i, i + 100), { onConflict: 'match_id,pubg_name', ignoreDuplicates: true })
         if (error) errs.push(`게임기록 저장 실패: ${error.message}`)
-      } catch(e) {
-        errs.push(`게임기록 예외: ${e.message}`)
-      }
+      } catch(e) { errs.push(`게임기록 예외: ${e.message}`) }
     }
   }
 
@@ -442,9 +402,7 @@ async function saveResults({ results, records, history, activeSeason, processedM
         )
         if (error) errs.push(`매치히스토리 저장 실패: ${error.message}`)
       }
-    } catch(e) {
-      errs.push(`매치히스토리 예외: ${e.message}`)
-    }
+    } catch(e) { errs.push(`매치히스토리 예외: ${e.message}`) }
   }
 
   return aggRows.length
@@ -456,10 +414,8 @@ async function startSync() {
   syncAborted = false; progressPct.value = 0
   progressMsg.value = '준비 중...'; startTimer()
   const startTime = Date.now()
-
   try {
     const { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange } = await loadSyncData()
-
     const { results, records, errors: errs, processedCount, skippedCount, message } = await syncAllMatches({
       members: membersWithAccounts, settings: settingsStore.settings,
       processedMatchIds, seasonRange,
@@ -469,20 +425,15 @@ async function startSync() {
         progressPct.value = Math.min(progressPct.value + 5, 88)
       }
     })
-
     if (syncAborted) return
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
-
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
-
     if (!syncAborted) {
       await settingsStore.save({ last_synced_at: new Date().toISOString() })
       await rankingStore.fetchAll(activeSeason?.id)
     }
-
     const elapsed = Date.now() - startTime
     const elapsedStr = elapsed < 60000 ? `${Math.floor(elapsed/1000)}초` : `${Math.floor(elapsed/60000)}분 ${Math.floor((elapsed%60000)/1000)}초`
-
     errors.value = errs
     syncResult.value = { processed: processedCount, saved, errCount: errs.length, message: message || (skippedCount > 0 ? `경쟁전 외 ${skippedCount}개 제외` : ''), elapsed: elapsedStr }
     progressPct.value = 100
@@ -502,10 +453,8 @@ async function startManualSync() {
   syncAborted = false; progressPct.value = 0
   progressMsg.value = '준비 중...'; startTimer()
   manualResult.value = null; lastError.value = ''
-
   try {
     const { history, processedMatchIds, membersWithAccounts, activeSeason, seasonRange } = await loadSyncData()
-
     const { results, records, errors: errs, skipped, alreadyProcessed, processedCount } = await syncMatchIds({
       matchIds: manualIds.value,
       members: membersWithAccounts, settings: settingsStore.settings,
@@ -516,17 +465,13 @@ async function startManualSync() {
         progressPct.value = Math.min(progressPct.value + 15, 88)
       }
     })
-
     if (syncAborted) return
     progressMsg.value = '점수 저장 중...'; progressPct.value = 92
-
     const saved = await saveResults({ results, records, history, activeSeason, processedMatchIds, errs })
-
     if (!syncAborted) {
       await rankingStore.fetchAll(activeSeason?.id)
       manualIds.value = []
     }
-
     manualResult.value = { processed: processedCount, saved, alreadyProcessed, skipped }
     errors.value = errs
     progressPct.value = 100

@@ -3,9 +3,11 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// 집계 대상 게임 모드 (카카오 서버 기준)
-// squad = 경쟁전, squad-fpp = 경쟁전 1인칭
+// 집계 대상 필터 (카카오 서버 기준)
+// gameMode: squad = 스쿼드 모드
+// matchType: competitive = 경쟁전
 const ALLOWED_GAME_MODES = ['squad', 'squad-fpp']
+const ALLOWED_MATCH_TYPES = ['competitive']
 
 async function pubgFetch(path) {
   const url = `${SUPABASE_URL}/functions/v1/pubg-proxy?path=${encodeURIComponent(path)}`
@@ -81,7 +83,7 @@ export function parseMatchData(matchJson) {
 }
 
 /**
- * 단일 매치 처리 로직 (일반 갱신 + match_id 직접 입력 공통 사용)
+ * 단일 매치 처리 로직
  */
 function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPubgName, settings, seasonRange }) {
   const results = []
@@ -89,10 +91,14 @@ function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPub
 
   const matchCreatedAt = matchJson.data?.attributes?.createdAt
   const gameMode = matchJson.data?.attributes?.gameMode ?? ''
+  const matchType = matchJson.data?.attributes?.matchType ?? ''
 
-  // 허용 모드 필터
-  if (ALLOWED_GAME_MODES && !ALLOWED_GAME_MODES.includes(gameMode)) {
+  // gameMode + matchType 둘 다 체크 (경쟁전만 처리)
+  if (!ALLOWED_GAME_MODES.includes(gameMode)) {
     return { results, records, skipped: true, reason: `게임모드 제외 (${gameMode})` }
+  }
+  if (!ALLOWED_MATCH_TYPES.includes(matchType)) {
+    return { results, records, skipped: true, reason: `매치타입 제외 (${matchType})` }
   }
 
   // 시즌 기간 필터
@@ -183,7 +189,7 @@ function processOneMatch({ matchJson, matchId, accountIdToMember, accountIdToPub
 }
 
 /**
- * 일반 자동 갱신 (최근 20경기 기준)
+ * 일반 자동 갱신
  */
 export async function syncAllMatches({ members, settings, processedMatchIds, seasonRange, onProgress }) {
   const results = []
@@ -248,10 +254,10 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
     onProgress?.(`매치 처리 중 (${i + 1}/${newMatchIds.length})`)
     try {
       const matchJson = await getMatchDetail(matchId)
-      const { results: r, records: rec, skipped, reason } = processOneMatch({
+      const { results: r, records: rec, skipped } = processOneMatch({
         matchJson, matchId, accountIdToMember, accountIdToPubgName, settings, seasonRange
       })
-      if (skipped) { skippedCount++; }
+      if (skipped) { skippedCount++ }
       else { results.push(...r); records.push(...rec) }
       processedMatchIds.add(matchId)
     } catch (e) {
@@ -270,7 +276,6 @@ export async function syncAllMatches({ members, settings, processedMatchIds, sea
 
 /**
  * match_id 직접 입력 처리
- * 시즌 누락 매치 보완용
  */
 export async function syncMatchIds({ matchIds, members, settings, processedMatchIds, seasonRange, onProgress }) {
   const results = []
@@ -314,15 +319,8 @@ export async function syncMatchIds({ matchIds, members, settings, processedMatch
   for (let i = 0; i < matchIds.length; i++) {
     const matchId = matchIds[i].trim()
     if (!matchId) continue
-
     onProgress?.(`매치 처리 중 (${i + 1}/${matchIds.length}): ${matchId.slice(0, 12)}...`)
-
-    // 이미 처리된 매치
-    if (processedMatchIds.has(matchId)) {
-      alreadyProcessed.push(matchId)
-      continue
-    }
-
+    if (processedMatchIds.has(matchId)) { alreadyProcessed.push(matchId); continue }
     try {
       const matchJson = await getMatchDetail(matchId)
       const { results: r, records: rec, skipped: s, reason } = processOneMatch({
