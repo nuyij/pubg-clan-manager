@@ -1,0 +1,30 @@
+name: Auto Sync PUBG Data
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 6시간마다 (UTC 기준 0, 6, 12, 18시)
+  workflow_dispatch:         # 수동 실행 가능
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call auto-sync Edge Function
+        run: |
+          response=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            --max-time 300 \
+            https://cgjqnwyaerekfxqgcolg.supabase.co/functions/v1/auto-sync)
+          
+          echo "HTTP Status: $response"
+          echo "Response: $(cat /tmp/response.json)"
+          
+          if [ "$response" != "200" ]; then
+            echo "❌ 갱신 실패 (HTTP $response)"
+            exit 1
+          fi
+          
+          echo "✅ 갱신 완료"
