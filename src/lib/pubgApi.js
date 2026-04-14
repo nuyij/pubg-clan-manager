@@ -20,7 +20,13 @@ async function pubgFetch(path) {
     throw new Error(`네트워크 오류: Edge Function에 연결할 수 없습니다. (${e.message})`)
   }
   let data
-  try { data = await res.json() } catch { throw new Error(`응답 파싱 오류: HTTP ${res.status}`) }
+  try {
+    const text = await res.text()
+    if (!text) throw new Error(`빈 응답: HTTP ${res.status}`)
+    data = JSON.parse(text)
+  } catch (e) {
+    throw new Error(`응답 파싱 오류: HTTP ${res.status} - ${e.message}`)
+  }
   if (!res.ok) {
     const msg = data?.errors?.[0]?.title ?? data?.error ?? `HTTP ${res.status}`
     if (res.status === 404) throw new Error(`플레이어를 찾을 수 없습니다: ${msg}`)

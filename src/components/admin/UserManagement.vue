@@ -63,6 +63,7 @@
             <tr class="border-b border-clan-border">
               <th class="px-4 py-3 text-left text-xs text-clan-muted font-display tracking-widest">클랜 닉네임</th>
               <th class="px-4 py-3 text-left text-xs text-clan-muted font-display tracking-widest">배그 ID</th>
+              <th class="px-4 py-3 text-left text-xs text-clan-muted font-display tracking-widest">Discord</th>
               <th class="px-4 py-3 text-center text-xs text-clan-muted font-display tracking-widest">상태</th>
               <th class="px-4 py-3 text-center text-xs text-clan-muted font-display tracking-widest">권한</th>
               <th class="px-4 py-3 text-left text-xs text-clan-muted font-display tracking-widest">등록일</th>
@@ -73,17 +74,27 @@
             <tr v-for="m in filteredMembers" :key="m.id"
               :class="['border-b border-clan-border/50 transition-colors', rankingStore.isUpgradeReady(m) ? 'bg-yellow-900/10' : 'hover:bg-clan-surface/40']">
               <td class="px-4 py-3">
-                <span class="text-sm text-clan-text font-body">{{ m.clan_nickname || '—' }}</span>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm text-clan-text font-body">{{ m.clan_nickname || '—' }}</span>
+                  <span v-if="!m.clan_nickname" class="text-[10px] px-1 py-0.5 bg-red-900/30 text-red-400 border border-red-700/30 rounded font-mono">미설정</span>
+                </div>
               </td>
               <td class="px-4 py-3">
-                <!-- 배그 ID + 관리자 수정 버튼 -->
                 <div class="flex items-center gap-1.5">
-                  <span class="text-xs text-clan-muted font-mono">{{ m.pubg_name || '미설정' }}</span>
+                  <span class="text-xs font-mono" :class="m.pubg_name ? 'text-clan-muted' : 'text-red-400'">{{ m.pubg_name || '미설정' }}</span>
+                  <span v-if="!m.pubg_name" class="text-[10px] px-1 py-0.5 bg-red-900/30 text-red-400 border border-red-700/30 rounded font-mono">!</span>
                   <button @click="openPubgEdit(m)"
                     class="text-[10px] px-1.5 py-0.5 border border-clan-border rounded text-clan-muted hover:border-clan-gold hover:text-clan-gold transition-colors"
                     title="배그 ID 수정">
                     ✏️
                   </button>
+                </div>
+              </td>
+              <!-- Discord -->
+              <td class="px-4 py-3">
+                <div>
+                  <div class="text-xs text-clan-text font-mono truncate max-w-[120px]" :title="m.discord_name">{{ m.discord_name || '—' }}</div>
+                  <div class="text-[10px] text-clan-muted font-mono truncate max-w-[120px]" :title="m.discord_id">{{ m.discord_id || '—' }}</div>
                 </div>
               </td>
               <td class="px-4 py-3 text-center">
