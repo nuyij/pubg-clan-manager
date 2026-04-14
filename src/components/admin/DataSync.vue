@@ -97,6 +97,32 @@
       {{ syncing && !manualMode ? (progressMsg || '갱신 중...') : '🔄 배그 API 데이터 강제 갱신' }}
     </button>
 
+    <!-- 점수 재계산 섹션 -->
+    <div class="bg-clan-surface rounded-lg p-4 border border-orange-700/30 space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-sm font-mono text-orange-400 font-bold">⚡ 점수 재계산</div>
+          <div class="text-xs text-clan-muted mt-0.5">API 호출 없이 기존 기록으로 점수를 새 공식으로 재계산합니다</div>
+        </div>
+      </div>
+      <div class="text-xs text-clan-muted bg-clan-card rounded p-2 border border-clan-border">
+        현재 설정: 킬 <span class="text-clan-gold font-mono">×{{ settingsStore.settings.kill_weight ?? 10 }}</span>
+        · 어시 <span class="text-clan-gold font-mono">×{{ settingsStore.settings.assist_weight ?? 5 }}</span>
+        · 신규보너스 <span class="text-clan-gold font-mono">×{{ settingsStore.settings.newbie_bonus ?? 1.5 }}</span>
+      </div>
+      <div v-if="recalcResult" class="bg-green-900/20 border border-green-700/30 rounded p-2 font-mono text-xs text-green-400">
+        ✅ 재계산 완료 · {{ recalcResult.members }}명 · {{ recalcResult.records }}건 처리
+      </div>
+      <div v-if="recalcError" class="text-red-400 text-xs font-mono">⚠️ {{ recalcError }}</div>
+      <button @click="confirmRecalc" :disabled="syncing || recalcing"
+        class="w-full py-2 text-sm border border-orange-700/50 text-orange-400 hover:bg-orange-900/20 rounded transition-colors flex items-center justify-center gap-2">
+        <svg class="w-4 h-4" :class="recalcing ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        {{ recalcing ? '재계산 중...' : '점수 재계산 실행' }}
+      </button>
+    </div>
+
     <!-- 누락 매치 수동 입력 섹션 -->
     <div class="bg-clan-surface rounded-lg p-4 border border-clan-border space-y-4">
       <div class="flex items-center justify-between">
@@ -162,6 +188,24 @@
         </div>
       </div>
     </div>
+    <!-- 재계산 확인 모달 -->
+    <div v-if="showRecalcConfirm" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+      <div class="card p-6 max-w-sm w-full animate-slide-up shadow-gold space-y-4">
+        <div class="text-center">
+          <div class="text-4xl mb-3">⚡</div>
+          <h3 class="font-display font-bold text-lg">점수 재계산 확인</h3>
+          <p class="text-sm text-clan-muted mt-2">
+            기존 match_data를 초기화하고<br>
+            현재 설정값으로 점수를 재계산합니다.<br>
+            <span class="text-orange-400 text-xs">API 호출 없이 기존 기록 데이터만 사용합니다</span>
+          </p>
+        </div>
+        <div class="flex gap-3">
+          <button @click="showRecalcConfirm = false" class="flex-1 btn-outline">취소</button>
+          <button @click="startRecalc" class="flex-1 py-2 bg-orange-700 hover:bg-orange-600 text-white rounded font-bold text-sm transition-colors">재계산 시작</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -194,6 +238,10 @@ const autoSyncHour = ref(4)
 const apiStatus = ref({ label: '미확인', color: 'text-clan-muted' })
 const manualInput = ref('')
 const manualIds = ref([])
+const recalcing = ref(false)
+const recalcResult = ref(null)
+const recalcError = ref('')
+const showRecalcConfirm = ref(false)
 
 const elapsedSec = ref(0)
 const estimatedSec = ref(0)
@@ -479,6 +527,116 @@ async function startManualSync() {
     lastError.value = e.message
   } finally {
     syncing.value = false; stopTimer()
+  }
+}
+
+function confirmRecalc() {
+  recalcResult.value = null
+  recalcError.value = ''
+  showRecalcConfirm.value = true
+}
+
+async function startRecalc() {
+  showRecalcConfirm.value = false
+  recalcing.value = true
+  recalcError.value = ''
+  recalcResult.value = null
+
+  try {
+    await settingsStore.fetch()
+    const settings = settingsStore.settings
+    const activeSeason = seasonStore.activeSeason
+
+    // 1. match_records 전체 조회
+    const { data: records, error: recErr } = await supabase
+      .from('match_records')
+      .select('*')
+      .eq('season_id', activeSeason?.id ?? null)
+
+    if (recErr) throw new Error(recErr.message)
+    if (!records?.length) throw new Error('재계산할 기록이 없습니다')
+
+    // 2. member_id 기준으로 집계
+    const memberAgg = {}
+    for (const rec of records) {
+      const key = rec.member_id ?? rec.pubg_name
+      if (!memberAgg[key]) {
+        memberAgg[key] = {
+          member_id: rec.member_id,
+          pubg_name: rec.pubg_name,
+          season_id: activeSeason?.id ?? null,
+          total_kills: 0, total_assists: 0, total_damage: 0,
+          total_survival_time: 0, total_wins: 0, total_games: 0,
+          contribution_points: 0, best_player_points: 0,
+        }
+      }
+      const a = memberAgg[key]
+
+      // 베스트플레이어 재계산
+      const rankScore = settings.rank_scores?.[String(rec.win_place)] ?? 0
+      const bestPlayer = rec.kills * (settings.kill_weight ?? 10)
+        + rec.assists * (settings.assist_weight ?? 5)
+        + rankScore
+
+      // 기여도 재계산 (is_party인 경우만)
+      // contribution은 party 전체 생존시간 기반이나 match_records에 개별 생존시간만 있음
+      // 기존 contribution 값 그대로 사용 (party 단위 계산이 불가)
+      const contribution = rec.contribution ?? 0
+
+      a.total_kills         += rec.kills ?? 0
+      a.total_assists       += rec.assists ?? 0
+      a.total_damage        += rec.damage ?? 0
+      a.total_survival_time += rec.survival_time ?? 0
+      a.total_wins          += rec.win_place === 1 ? 1 : 0
+      a.total_games         += 1
+      a.contribution_points += contribution
+      a.best_player_points  += bestPlayer
+
+      // best_player_pts도 업데이트
+      rec._new_best_player_pts = bestPlayer
+    }
+
+    // 3. match_records의 best_player_pts 업데이트
+    for (const rec of records) {
+      if (rec._new_best_player_pts !== undefined) {
+        await supabase.from('match_records')
+          .update({ best_player_pts: rec._new_best_player_pts })
+          .eq('id', rec.id)
+      }
+    }
+
+    // 4. match_data 초기화 후 재저장
+    const aggRows = Object.values(memberAgg)
+    if (aggRows.length) {
+      // 기존 데이터 조회
+      const memberIds = aggRows.map(r => r.member_id).filter(Boolean)
+      const { data: existing } = await supabase.from('match_data').select('id, member_id').in('member_id', memberIds)
+      const existingMap = {}
+      for (const e of (existing ?? [])) existingMap[e.member_id] = e.id
+
+      for (const row of aggRows) {
+        const exId = existingMap[row.member_id]
+        if (exId) {
+          await supabase.from('match_data').update({
+            total_kills: row.total_kills, total_assists: row.total_assists,
+            total_damage: row.total_damage, total_survival_time: row.total_survival_time,
+            total_wins: row.total_wins, total_games: row.total_games,
+            contribution_points: row.contribution_points,
+            best_player_points: row.best_player_points,
+            updated_at: new Date().toISOString(),
+          }).eq('id', exId)
+        } else {
+          await supabase.from('match_data').insert({ ...row, updated_at: new Date().toISOString() })
+        }
+      }
+    }
+
+    await rankingStore.fetchAll(activeSeason?.id)
+    recalcResult.value = { members: aggRows.length, records: records.length }
+  } catch (e) {
+    recalcError.value = e.message
+  } finally {
+    recalcing.value = false
   }
 }
 
